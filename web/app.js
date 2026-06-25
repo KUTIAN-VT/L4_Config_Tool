@@ -37,9 +37,11 @@ const state = {
   lastOverview: null,
   lastMonitor: null,
   lastLog: null,
-  defaultConfigText: "",
-  defaultConfigReadPending: false,
   mcsOptionsByRole: null,
+  powerRanges: {
+    local: { minidbRange: null, jsonRange: null, minidbRead: false, minidbPending: false, jsonRead: false, jsonPending: false },
+    peer: { minidbRange: null, jsonRange: null, minidbRead: false, minidbPending: false, jsonRead: false, jsonPending: false },
+  },
   monitorLog: {
     recording: false,
     stopIntent: false,
@@ -76,6 +78,9 @@ const fallbackMcsOptionsByRole = {
   AP: [-2, -1, 0, 3, 5, 6, 7, 9],
   DEV: [0, 3, 5, 6, 7, 9, 10],
 };
+
+const fallbackPowerRange = Object.freeze({ min: 15, max: 27 });
+const persistPowerEditableRange = Object.freeze({ min: 5, max: 32 });
 
 const els = {
   topbar: document.querySelector(".topbar"),
@@ -1259,6 +1264,7 @@ function setPersistTargetScope(scope = "local", { restore = false } = {}) {
   if (restore) {
     restoreActivePersistForm(targetScope);
   }
+  updatePersistPowerInputLimits();
 }
 
 function syncTargetDeviceControls() {
@@ -1492,6 +1498,60 @@ function staticMcsOptions() {
   return uniqueNumberList(Array.from(document.querySelector("#mcsSelect")?.options || [], (option) => option.value));
 }
 
+function normalizePowerRange(minValue, maxValue) {
+  const min = Number(minValue);
+  const max = Number(maxValue);
+  if (!Number.isInteger(min) || !Number.isInteger(max) || min < 5 || max > 32 || min > max) {
+    return null;
+  }
+  return { min, max };
+}
+
+function clonePowerRange(range) {
+  return range ? { min: range.min, max: range.max } : null;
+}
+
+function ensureScopedPowerRange(scope = "local") {
+  const normalizedScope = normalizePersistTargetScope(scope);
+  if (!state.powerRanges[normalizedScope]) {
+    state.powerRanges[normalizedScope] = {
+      minidbRange: null,
+      jsonRange: null,
+      minidbRead: false,
+      minidbPending: false,
+      jsonRead: false,
+      jsonPending: false,
+    };
+  }
+  return state.powerRanges[normalizedScope];
+}
+
+function currentPowerRange(scope = activeLinkEndpointScope()) {
+  const scoped = ensureScopedPowerRange(scope);
+  return clonePowerRange(scoped.minidbRange)
+    || clonePowerRange(scoped.jsonRange)
+    || { ...fallbackPowerRange };
+}
+
+function powerRangeText(range = currentPowerRange()) {
+  return `${range.min}-${range.max} dBm`;
+}
+
+function powerRangePayload(scope = activeLinkEndpointScope()) {
+  const range = currentPowerRange(scope);
+  return {
+    powerRangeMin: range.min,
+    powerRangeMax: range.max,
+  };
+}
+
+function persistPowerRangePayload() {
+  return {
+    powerRangeMin: persistPowerEditableRange.min,
+    powerRangeMax: persistPowerEditableRange.max,
+  };
+}
+
 function normalizeDeviceRole(role) {
   const text = String(role ?? "").trim().toUpperCase();
   return text === "AP" || text === "DEV" ? text : "";
@@ -1555,19 +1615,82 @@ function parseMcsOptionsByRole(text) {
   }
 }
 
-function updateDefaultConfigCache(data) {
+function powerRangeFromConfigNode(node) {
+  if (!node || typeof node !== "object" || Array.isArray(node)) {
+    return null;
+  }
+
+  const power = objectValueIgnoreCase(node, "power");
+  const range = objectValueIgnoreCase(power, "pwr_range");
+  if (Array.isArray(range) && range.length >= 2) {
+    const normalized = normalizePowerRange(range[0], range[1]);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  for (const value of Object.values(node)) {
+    const matched = powerRangeFromConfigNode(value);
+    if (matched) {
+      return matched;
+    }
+  }
+  return null;
+}
+
+function parsePowerRangeFromDefaultConfig(text) {
+  try {
+    const parsed = JSON.parse(String(text || ""));
+    return powerRangeFromConfigNode(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function powerRangeFromPersistPower(power) {
+  if (!power || typeof power !== "object" || power.set !== true || power.mode !== "range") {
+    return null;
+  }
+  return normalizePowerRange(power.min, power.max);
+}
+
+function updateMinidbPowerRangeFromPersistData(data) {
+  const scope = normalizePersistTargetScope(data?.targetScope || activePersistTargetScope());
+  const scoped = ensureScopedPowerRange(scope);
+  if (!data || !Object.prototype.hasOwnProperty.call(data, "power")) {
+    return false;
+  }
+  scoped.minidbRange = powerRangeFromPersistPower(data.power);
+  scoped.minidbRead = true;
+  scoped.minidbPending = false;
+  return true;
+}
+
+function updateDefaultConfigCache(data, { updateMcs = true } = {}) {
   if (!data || typeof data.text !== "string") {
     return false;
   }
-  state.defaultConfigText = data.text;
-  state.mcsOptionsByRole = parseMcsOptionsByRole(data.text);
+  const scope = normalizePersistTargetScope(data.targetScope || "local");
+  const scoped = ensureScopedPowerRange(scope);
+  scoped.jsonRange = parsePowerRangeFromDefaultConfig(data.text);
+  scoped.jsonRead = true;
+  scoped.jsonPending = false;
+  if (updateMcs) {
+    state.mcsOptionsByRole = parseMcsOptionsByRole(data.text);
+  }
   return true;
 }
 
 function resetDefaultConfigCache() {
-  state.defaultConfigText = "";
-  state.defaultConfigReadPending = false;
   state.mcsOptionsByRole = null;
+  Object.values(state.powerRanges).forEach((rangeState) => {
+    rangeState.minidbRange = null;
+    rangeState.jsonRange = null;
+    rangeState.minidbRead = false;
+    rangeState.minidbPending = false;
+    rangeState.jsonRead = false;
+    rangeState.jsonPending = false;
+  });
 }
 
 function currentMcsOptionsByRole() {
@@ -1628,19 +1751,135 @@ function refreshMcsOptionsForEndpoint(endpointScope = activeLinkEndpointScope(),
   syncCustomSelect(select);
 }
 
-function requestDefaultConfigForMcsOptions(endpointScope = activeLinkEndpointScope()) {
-  refreshMcsOptionsForEndpoint(endpointScope);
-  if (!state.deviceConnected || state.defaultConfigReadPending) {
+function refreshPowerOptions(endpointScope = activeLinkEndpointScope(), { preferredValue } = {}) {
+  const select = document.querySelector("#powerSelect");
+  if (!select) {
     return;
   }
-  state.defaultConfigReadPending = true;
-  bridgeCall("readConfigFile", profileRequestOptions("local", { mode: 0 })).then((response) => {
+
+  const range = currentPowerRange(endpointScope);
+  const options = [];
+  for (let value = range.min; value <= range.max; value += 1) {
+    options.push(value);
+  }
+  if (!options.length) {
+    return;
+  }
+
+  const current = String(select.value ?? "");
+  const preferred = preferredValue !== undefined ? String(preferredValue) : current;
+  const optionTexts = options.map((value) => String(value));
+  let nextValue = optionTexts.includes(preferred)
+    ? preferred
+    : optionTexts.includes(current) ? current : "";
+  if (!nextValue) {
+    const numericPreferred = Number(preferred);
+    const bounded = Number.isFinite(numericPreferred)
+      ? Math.min(Math.max(Math.round(numericPreferred), range.min), range.max)
+      : options[0];
+    nextValue = String(bounded);
+  }
+
+  select.replaceChildren(...options.map((value) => {
+    const option = document.createElement("option");
+    option.value = String(value);
+    option.textContent = `${value} dBm`;
+    return option;
+  }));
+  select.value = nextValue;
+  syncCustomSelect(select);
+}
+
+function updatePersistPowerInputLimits() {
+  const range = persistPowerEditableRange;
+  ["fixedPowerInput", "minPowerInput", "maxPowerInput"].forEach((id) => {
+    const input = document.querySelector(`#${id}`);
+    if (!input) {
+      return;
+    }
+    input.min = String(range.min);
+    input.max = String(range.max);
+  });
+}
+
+function refreshLinkLimitControls(endpointScope = activeLinkEndpointScope()) {
+  const values = ensureLinkConfigForm(endpointScope).values || defaultLinkConfigValues();
+  refreshMcsOptionsForEndpoint(endpointScope, { preferredValue: values.mcs ?? 6 });
+  refreshPowerOptions(endpointScope, { preferredValue: values.power ?? document.querySelector("#powerSelect")?.value ?? 20 });
+  updatePersistPowerInputLimits();
+}
+
+function requestDefaultConfigForLinkLimits(endpointScope = activeLinkEndpointScope(), { force = false } = {}) {
+  const scope = normalizePersistTargetScope(endpointScope);
+  const scoped = ensureScopedPowerRange(scope);
+  if (scope === activeLinkEndpointScope()) {
+    refreshLinkLimitControls(scope);
+  }
+  if (!state.deviceConnected || scoped.jsonPending || (!force && scoped.jsonRead)) {
+    return;
+  }
+  scoped.jsonPending = true;
+  bridgeCall("readConfigFile", profileRequestOptions(scope, { mode: 0 })).then((response) => {
     if (!response.ok) {
-      state.defaultConfigReadPending = false;
+      scoped.jsonPending = false;
       appendLog(response.message);
-      refreshMcsOptionsForEndpoint(endpointScope);
+      if (scope === activeLinkEndpointScope()) {
+        refreshLinkLimitControls(scope);
+      }
     }
   });
+}
+
+function requestDefaultConfigForMcsOptions(endpointScope = activeLinkEndpointScope()) {
+  requestDefaultConfigForLinkLimits(endpointScope, { force: true });
+}
+
+function requestPowerRangeSources(scope = activeLinkEndpointScope()) {
+  const normalizedScope = normalizePersistTargetScope(scope);
+  const scoped = ensureScopedPowerRange(normalizedScope);
+  requestDefaultConfigForLinkLimits(normalizedScope);
+  if (state.deviceConnected && !scoped.minidbRead && !scoped.minidbPending) {
+    scoped.minidbPending = true;
+    requestPersistConfig(normalizedScope);
+  }
+}
+
+function requestAvailablePowerRangeSources() {
+  if (!state.deviceConnected) {
+    return;
+  }
+  requestPowerRangeSources("local");
+  if (hasRemoteUpgradeTarget()) {
+    requestPowerRangeSources("peer");
+  }
+}
+
+function powerInPersistEditableRange(value) {
+  const number = Number(value);
+  const range = persistPowerEditableRange;
+  return Number.isInteger(number) && number >= range.min && number <= range.max;
+}
+
+function validatePersistPowerInputs(showMessage = false) {
+  const powerMode = activeSegmentValue('[data-persist-key="powerMode"]', "unset");
+  if (powerMode === "fixed") {
+    if (!powerInPersistEditableRange(document.querySelector("#fixedPowerInput")?.value)) {
+      if (showMessage) {
+        appendLog(`固定功率应在 ${powerRangeText(persistPowerEditableRange)} 之间`);
+      }
+      return false;
+    }
+  } else if (powerMode === "range") {
+    const minPower = Number(document.querySelector("#minPowerInput")?.value);
+    const maxPower = Number(document.querySelector("#maxPowerInput")?.value);
+    if (!powerInPersistEditableRange(minPower) || !powerInPersistEditableRange(maxPower) || minPower > maxPower) {
+      if (showMessage) {
+        appendLog(`功率范围应在 ${powerRangeText(persistPowerEditableRange)}，且最小值不大于最大值`);
+      }
+      return false;
+    }
+  }
+  return true;
 }
 
 function syncConfigMode(configKey, mode) {
@@ -1720,6 +1959,7 @@ function renderLinkConfigForm(endpointScope = activeLinkEndpointScope()) {
   syncConfigMode("mcsMode", values.mcsMode || "auto");
   selectValueIfPresent(document.querySelector("#mcsSelect"), values.mcs ?? 6);
   syncConfigMode("powerAuto", values.powerAuto || "auto");
+  refreshPowerOptions(endpointScope, { preferredValue: values.power ?? 20 });
   selectValueIfPresent(document.querySelector("#powerSelect"), values.power ?? 20);
 }
 
@@ -3179,6 +3419,7 @@ function resetConfigSearch() {
 
 function clearConfigFileView() {
   resetDefaultConfigCache();
+  refreshLinkLimitControls(activeLinkEndpointScope());
   if (els.jsonEditor) {
     els.jsonEditor.value = "";
   }
@@ -3469,6 +3710,8 @@ function renderConnection(stateMap) {
     setStatus("online", `${stateMap.deviceName || t("device.defaultName")} ${t("status.deviceOnline")}`);
     startRefresh();
     requestCurrentSnapshot(true);
+    requestPowerRangeSources("local");
+    requestDefaultConfigForLinkLimits(activeLinkEndpointScope());
     if (state.currentCode === "L4.PERSIST") {
       requestPersistConfig();
     }
@@ -3525,6 +3768,7 @@ function renderOverview(data) {
   refreshMcsOptionsForEndpoint(activeLinkEndpointScope());
 
   renderPairTable(visibleSlotsForMode(data));
+  requestAvailablePowerRangeSources();
   syncFirmwareControls();
   startRefresh();
 }
@@ -4430,13 +4674,23 @@ function renderOperation(response) {
     requestCurrentSnapshot();
   }
   if (data.operation === "config.read") {
-    state.defaultConfigReadPending = false;
+    const configScope = normalizePersistTargetScope(data.targetScope || "local");
+    ensureScopedPowerRange(configScope).jsonPending = false;
     const endpointScope = activeLinkEndpointScope();
-    if (ok && updateDefaultConfigCache(data)) {
-      const values = ensureLinkConfigForm(endpointScope).values || defaultLinkConfigValues();
-      refreshMcsOptionsForEndpoint(endpointScope, { preferredValue: values.mcs ?? 6 });
+    if (ok && updateDefaultConfigCache(data, { updateMcs: configScope === "local" })) {
+      refreshLinkLimitControls(endpointScope);
     } else if (!ok) {
-      refreshMcsOptionsForEndpoint(endpointScope);
+      refreshLinkLimitControls(endpointScope);
+    }
+  }
+  if (data.operation === "persist.get") {
+    const scope = normalizePersistTargetScope(data.targetScope || activePersistTargetScope());
+    const scoped = ensureScopedPowerRange(scope);
+    scoped.minidbPending = false;
+    if (!ok) {
+      scoped.minidbRead = true;
+      scoped.minidbRange = null;
+      refreshLinkLimitControls(activeLinkEndpointScope());
     }
   }
   if (data.operation === "persist.set") {
@@ -4571,6 +4825,7 @@ function collectLinkConfig(actions = []) {
     powerAuto: activeSegmentValue('[data-config-key="powerAuto"]', "auto") === "auto",
     power: Number(document.querySelector("#powerSelect")?.value || 20),
     frameChange: activeSegmentValue('[data-config-key="frameChange"]', "default"),
+    ...powerRangePayload(endpointScope),
   };
   if (Array.isArray(actions) && actions.length > 0) {
     payload.actions = actions;
@@ -4729,6 +4984,7 @@ function collectPersistConfig(fields = []) {
   if (includeAll || selectedFields.includes("power")) {
     const powerMode = activeSegmentValue('[data-persist-key="powerMode"]', "unset");
     payload.powerMode = powerMode;
+    Object.assign(payload, persistPowerRangePayload());
     if (powerMode === "fixed") {
       payload.fixedPower = Number(document.querySelector("#fixedPowerInput")?.value || 0);
     } else if (powerMode === "range") {
@@ -4850,6 +5106,10 @@ async function applyPersistConfig(fields = []) {
     updatePersistDirtyState();
     return;
   }
+  if (selectedFields.includes("power") && !validatePersistPowerInputs(true)) {
+    updatePersistDirtyState();
+    return;
+  }
   if (selectedFields.includes("freqList")) {
     const validation = validateFreqListValues(true);
     if (!validation.ok) {
@@ -4885,6 +5145,10 @@ async function applyPersistConfig(fields = []) {
 
 function renderPersistConfig(data) {
   const targetScope = normalizePersistTargetScope(data.targetScope || activePersistTargetScope());
+  const powerRangeUpdated = updateMinidbPowerRangeFromPersistData(data);
+  if (powerRangeUpdated) {
+    refreshLinkLimitControls(activeLinkEndpointScope());
+  }
   if (targetScope !== activePersistTargetScope()) {
     return;
   }
@@ -4936,16 +5200,14 @@ function renderConfigFile(data) {
   const targetScope = normalizePersistTargetScope(data.targetScope || activeProfileTargetScope());
   const form = currentProfileForm(targetScope);
   if (typeof data.text === "string") {
-    const cacheUpdated = updateDefaultConfigCache(data);
+    const cacheUpdated = updateDefaultConfigCache(data, { updateMcs: targetScope === "local" });
     form.text = data.text;
     form.read = true;
     if (targetScope === activeProfileTargetScope()) {
       els.jsonEditor.value = data.text;
     }
     if (cacheUpdated) {
-      const endpointScope = activeLinkEndpointScope();
-      const values = ensureLinkConfigForm(endpointScope).values || defaultLinkConfigValues();
-      refreshMcsOptionsForEndpoint(endpointScope, { preferredValue: values.mcs ?? 6 });
+      refreshLinkLimitControls(activeLinkEndpointScope());
     }
   }
   if (els.configFileMeta) {
@@ -4963,7 +5225,7 @@ function renderConfigFile(data) {
 }
 
 function handleConfigFileUpdated(data) {
-  state.defaultConfigReadPending = false;
+  ensureScopedPowerRange(data?.targetScope || "local").jsonPending = false;
   renderConfigFile(data);
 }
 
@@ -5186,6 +5448,7 @@ function handleSegmentButton(button) {
   if (button.dataset.persistTargetScope) {
     state.persistTargetScope = nextPersistTargetScope;
     restoreActivePersistForm(nextPersistTargetScope);
+    updatePersistPowerInputLimits();
     requestPersistConfig(nextPersistTargetScope);
     return;
   }
