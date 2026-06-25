@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>L4 配置工具</title>
+  <link rel="icon" href="assets/l4-app-logo.png" type="image/png">
+  <script>
+    (() => {
+      const storageKey = "l4-config-tool-web.preferences";
+      const defaultAccent = "#3E7BE1";
+      const normalizeTheme = (value) => (value === "dark" ? "dark" : value === "light" ? "light" : "");
+      const normalizeLanguage = (value) => (value === "en" ? "en" : value === "zh" ? "zh" : "");
+      const normalizeAccent = (value) => {
+        const text = typeof value === "string" ? value.trim() : "";
+        const match = text.match(/^#?([0-9a-fA-F]{6})$/);
+        return match ? `#${match[1].toUpperCase()}` : "";
+      };
+      const hexToRgb = (hex) => {
+        const value = normalizeAccent(hex).slice(1);
+        return {
+          r: parseInt(value.slice(0, 2), 16),
+          g: parseInt(value.slice(2, 4), 16),
+          b: parseInt(value.slice(4, 6), 16),
+        };
+      };
+      const mix = (from, to, amount) => Math.round(from + (to - from) * amount);
+      const mixHex = (hex, target, amount) => {
+        const rgb = hexToRgb(hex);
+        return `#${[mix(rgb.r, target, amount), mix(rgb.g, target, amount), mix(rgb.b, target, amount)]
+          .map((channel) => channel.toString(16).padStart(2, "0"))
+          .join("")
+          .toUpperCase()}`;
+      };
+      const rgba = (hex, alpha) => {
+        const rgb = hexToRgb(hex);
+        return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+      };
+      const accentContrast = (hex) => {
+        const { r, g, b } = hexToRgb(hex);
+        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+        return luminance > 0.62 ? "#101010" : "#ffffff";
+      };
+      const setAccentVars = (accent, theme) => {
+        const isDark = theme === "dark";
+        const root = document.documentElement;
+        root.style.setProperty("--blue", accent);
+        root.style.setProperty("--accent-fill", accent);
+        root.style.setProperty("--blue-hover", mixHex(accent, isDark ? 255 : 0, isDark ? 0.2 : 0.12));
+        root.style.setProperty("--blue-active", mixHex(accent, isDark ? 255 : 0, isDark ? 0.32 : 0.22));
+        root.style.setProperty("--accent-fill-hover", mixHex(accent, isDark ? 255 : 0, isDark ? 0.2 : 0.12));
+        root.style.setProperty("--blue-soft", rgba(accent, isDark ? 0.16 : 0.1));
+        root.style.setProperty("--blue-ring", rgba(accent, isDark ? 0.28 : 0.2));
+        root.style.setProperty("--blue-border", rgba(accent, 0.32));
+        root.style.setProperty("--blue-border-strong", rgba(accent, 0.48));
+        root.style.setProperty("--blue-gradient", rgba(accent, isDark ? 0.26 : 0.34));
+        root.style.setProperty("--blue-grid", rgba(accent, isDark ? 0.05 : 0.04));
+        root.style.setProperty("--cyan", mixHex(accent, 255, isDark ? 0.34 : 0.22));
+        root.style.setProperty("--accent-control-text", accentContrast(accent));
+      };
+      const params = new URLSearchParams(window.location.search);
+      let stored = {};
+      try {
+        const raw = window.localStorage?.getItem(storageKey);
+        stored = raw ? JSON.parse(raw) || {} : {};
+      } catch (error) {
+        stored = {};
+      }
+
+      const theme = normalizeTheme(params.get("theme")) || normalizeTheme(stored.theme) || "light";
+      const language = normalizeLanguage(params.get("language")) || normalizeLanguage(stored.language) || "zh";
+      const accent = normalizeAccent(stored.accent) || defaultAccent;
+      window.__L4_INITIAL_PREFERENCES = { theme, language, accent };
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.lang = language === "en" ? "en" : "zh-CN";
+      setAccentVars(accent, theme);
+      document.documentElement.dataset.uiReady = "false";
+    })();
+  </script>
+  <link rel="stylesheet" href="styles.css?v=20260623-theme-accent-monitor-units">
+  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+  <script src="app.js?v=20260623-theme-accent-monitor-units" defer></script>
+</head>
+<body>
+  <svg class="svg-defs" aria-hidden="true">
+    <symbol id="icon-chevron-down" viewBox="0 0 24 24"><path class="icon" d="m6 9 6 6 6-6"></path></symbol>
+    <symbol id="icon-chevron-up" viewBox="0 0 24 24"><path class="icon" d="m18 15-6-6-6 6"></path></symbol>
+    <symbol id="icon-window-minimize" viewBox="0 0 24 24"><path class="icon" d="M5 12h14"></path></symbol>
+    <symbol id="icon-window-maximize" viewBox="0 0 24 24"><rect class="icon" x="6" y="6" width="12" height="12" rx="1.5"></rect></symbol>
+    <symbol id="icon-window-close" viewBox="0 0 24 24"><path class="icon" d="m7 7 10 10"></path><path class="icon" d="m17 7-10 10"></path></symbol>
+    <symbol id="icon-search" viewBox="0 0 24 24"><circle class="icon" cx="11" cy="11" r="7"></circle><path class="icon" d="m20 20-3.5-3.5"></path></symbol>
+    <symbol id="icon-info" viewBox="0 0 24 24"><circle class="icon" cx="12" cy="12" r="9"></circle><path class="icon" d="M12 10v6"></path><path class="icon" d="M12 7h.01"></path></symbol>
+    <symbol id="icon-upload" viewBox="0 0 24 24"><path class="icon" d="M12 16V4"></path><path class="icon" d="m7 9 5-5 5 5"></path><path class="icon" d="M20 20H4"></path></symbol>
+    <symbol id="icon-activity" viewBox="0 0 24 24"><path class="icon" d="M3 12h4l3-8 4 16 3-8h4"></path></symbol>
+    <symbol id="icon-network" viewBox="0 0 24 24"><rect class="icon" x="3" y="3" width="6" height="6" rx="1"></rect><rect class="icon" x="15" y="3" width="6" height="6" rx="1"></rect><rect class="icon" x="9" y="15" width="6" height="6" rx="1"></rect><path class="icon" d="M6 9v2a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V9"></path><path class="icon" d="M12 13v2"></path></symbol>
+    <symbol id="icon-file" viewBox="0 0 24 24"><path class="icon" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path class="icon" d="M14 2v6h6"></path></symbol>
+    <symbol id="icon-save" viewBox="0 0 24 24"><path class="icon" d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"></path><path class="icon" d="M17 21v-8H7v8"></path><path class="icon" d="M7 3v5h8"></path></symbol>
+    <symbol id="icon-record" viewBox="0 0 24 24"><circle class="icon" cx="12" cy="12" r="7"></circle></symbol>
+    <symbol id="icon-stop" viewBox="0 0 24 24"><rect class="icon" x="7" y="7" width="10" height="10" rx="1.5"></rect></symbol>
+    <symbol id="icon-flag" viewBox="0 0 24 24"><path class="icon" d="M5 21V4"></path><path class="icon" d="M5 5h12l-2 4 2 4H5"></path></symbol>
+    <symbol id="icon-download" viewBox="0 0 24 24"><path class="icon" d="M12 3v12"></path><path class="icon" d="m7 10 5 5 5-5"></path><path class="icon" d="M5 21h14"></path></symbol>
+    <symbol id="icon-settings" viewBox="0 0 24 24"><path class="icon" d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"></path><path class="icon" d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 4.3l.06.06A1.65 1.65 0 0 0 8.92 4a1.65 1.65 0 0 0 1-1.51V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.66 0 1.26.39 1.51 1H21a2 2 0 1 1 0 4h-.09c-.66 0-1.26.39-1.51 1Z"></path></symbol>
+    <symbol id="icon-alert-triangle" viewBox="0 0 24 24"><path class="icon" d="M10.3 4.1 2.7 17.4A2.1 2.1 0 0 0 4.5 20h15a2.1 2.1 0 0 0 1.8-2.6L13.7 4.1a2 2 0 0 0-3.4 0Z"></path><path class="icon" d="M12 9v4"></path><path class="icon" d="M12 16h.01"></path></symbol>
+  </svg>
+
+  <main class="stage">
+    <div class="app-window" role="application" aria-label="L4 配置工具" data-i18n-aria-label="app.aria">
+      <header class="topbar">
+        <div class="brand">
+          <img class="brand-logo" src="assets/l4-app-logo.png" alt="" aria-hidden="true" draggable="false">
+          <div class="brand-text">
+            <h1 class="brand-title" data-i18n="app.brandTitle">L4 配置工具</h1>
+          </div>
+        </div>
+        <div class="top-controls">
+          <div class="top-device device-select-wrap">
+            <select id="deviceSelect" class="device-select" aria-label="打开设备" data-i18n-aria-label="top.deviceAria" disabled>
+              <option value="" data-device-option="waiting" data-i18n="device.waiting">等待设备</option>
+            </select>
+            <svg class="select-icon" aria-hidden="true"><use href="#icon-chevron-down"></use></svg>
+          </div>
+          <div class="window-controls" aria-label="窗口控制" data-i18n-aria-label="window.controlsAria">
+            <button class="window-button" type="button" data-window-action="minimize" aria-label="最小化" title="最小化" data-i18n-aria-label="window.minimize" data-i18n-title="window.minimize"><svg aria-hidden="true"><use href="#icon-window-minimize"></use></svg></button>
+            <button class="window-button" type="button" data-window-action="maximize" aria-label="最大化" title="最大化" data-i18n-aria-label="window.maximize" data-i18n-title="window.maximize"><svg aria-hidden="true"><use href="#icon-window-maximize"></use></svg></button>
+            <button class="window-button close" type="button" data-window-action="close" aria-label="关闭" title="关闭" data-i18n-aria-label="window.close" data-i18n-title="window.close"><svg aria-hidden="true"><use href="#icon-window-close"></use></svg></button>
+          </div>
+        </div>
+      </header>
+
+      <div class="main">
+        <aside class="sidebar" aria-label="主导航" data-i18n-aria-label="sidebar.aria">
+          <nav class="nav-list" aria-label="功能列表" data-i18n-aria-label="nav.aria">
+            <button class="nav-button active" type="button" data-title="设备信息" data-code="L4.INFO"><span class="nav-icon"><svg aria-hidden="true"><use href="#icon-info"></use></svg></span><span class="nav-copy"><span class="nav-title" data-i18n="nav.infoTitle">设备信息</span><span class="nav-meta" data-i18n="nav.infoMeta">状态与对频管理</span></span></button>
+            <button class="nav-button" type="button" data-title="固件升级" data-code="L4.UPDATE"><span class="nav-icon"><svg aria-hidden="true"><use href="#icon-upload"></use></svg></span><span class="nav-copy"><span class="nav-title" data-i18n="nav.firmwareTitle">固件升级</span><span class="nav-meta" data-i18n="nav.firmwareMeta">本机/对端镜像升级</span></span></button>
+            <button class="nav-button" type="button" data-title="链路监控" data-code="L4.MONITOR"><span class="nav-icon"><svg aria-hidden="true"><use href="#icon-activity"></use></svg></span><span class="nav-copy"><span class="nav-title" data-i18n="nav.monitorTitle">链路监控</span><span class="nav-meta" data-i18n="nav.monitorMeta">链路指标与扫频</span></span></button>
+            <button class="nav-button" type="button" data-title="链路配置" data-code="L4.LINK"><span class="nav-icon"><svg aria-hidden="true"><use href="#icon-network"></use></svg></span><span class="nav-copy"><span class="nav-title" data-i18n="nav.linkTitle">链路配置</span><span class="nav-meta" data-i18n="nav.linkMeta">即时生效，掉电丢失</span></span></button>
+            <button class="nav-button" type="button" data-title="持久配置" data-code="L4.PERSIST"><span class="nav-icon"><svg aria-hidden="true"><use href="#icon-save"></use></svg></span><span class="nav-copy"><span class="nav-title" data-i18n="nav.persistTitle">持久配置</span><span class="nav-meta" data-i18n="nav.persistMeta">非易失保存，重启生效</span></span></button>
+            <button class="nav-button" type="button" data-title="默认配置" data-code="L4.PROFILE"><span class="nav-icon"><svg aria-hidden="true"><use href="#icon-file"></use></svg></span><span class="nav-copy"><span class="nav-title" data-i18n="nav.profileTitle">默认配置</span><span class="nav-meta" data-i18n="nav.profileMeta">缺省参数，兜底生效</span></span></button>
+          </nav>
+
+          <div class="sidebar-bottom">
+            <button id="settingsButton" class="settings-button" type="button" data-title="设置" data-code="L4.SETTINGS"><span class="nav-icon"><svg aria-hidden="true"><use href="#icon-settings"></use></svg></span><span class="nav-copy"><span class="nav-title" data-i18n="nav.settingsTitle">设置</span><span class="nav-meta" data-i18n="nav.settingsMeta">主题、语言与版本</span></span></button>
+          </div>
+        </aside>
+
+        <section class="content" aria-label="详细配置" data-i18n-aria-label="content.aria">
+          <div id="deviceInfoPage" class="device-page">
+            <div class="info-summary" aria-label="设备信息摘要" data-i18n-aria-label="info.summaryAria">
+              <div class="info-cell"><span class="info-label" data-i18n="info.modeLabel">工作模式</span><span id="modeValue" class="info-value">--</span></div>
+              <div class="info-cell"><span class="info-label" data-i18n="info.localMacLabel">本机 MAC</span><span id="localMacValue" class="info-value">--</span></div>
+              <div class="info-cell"><span class="info-label" data-i18n="info.uptimeLabel">运行时间</span><span id="uptimeValue" class="info-value">--</span></div>
+              <div class="info-cell"><span class="info-label" data-i18n="info.firmwareLabel">固件版本</span><span id="firmwareValue" class="info-value" title="">--</span></div>
+            </div>
+
+            <div class="mode-row">
+              <span class="mode-title" data-i18n="info.roleLabel">设备角色</span>
+              <div id="roleSegment" class="segment role-segment" role="group" aria-label="设备角色" data-i18n-aria-label="info.roleAria">
+                <button class="segment-button" type="button" data-role="AP" disabled>AP</button>
+                <button class="segment-button" type="button" data-role="DEV" disabled>DEV</button>
+              </div>
+            </div>
+
+            <div class="section-panel">
+              <div class="section-head">
+                <h3 class="section-title" data-i18n="info.pairTitle">对频管理</h3>
+              </div>
+              <table class="pair-table" aria-label="对频管理" data-i18n-aria-label="info.pairAria">
+                <thead>
+                  <tr><th data-i18n="info.peerDevice">对端设备</th><th data-i18n="info.connectionStatus">连接状态</th><th data-i18n="info.peerFirmwareVersion">固件版本</th><th data-i18n="info.macAddress">MAC 地址</th><th data-i18n="common.operation">操作</th></tr>
+                </thead>
+                <tbody id="pairTableBody">
+                  <tr><td colspan="5" class="empty-cell" data-i18n="empty.noDeviceData">暂无设备数据</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+
+          <div id="monitorPage" class="monitor-page" hidden>
+            <div class="section-panel">
+              <div class="section-head">
+                <h3 class="section-title" data-i18n="monitor.linkTitle">链路信息</h3>
+                <div class="monitor-actions" aria-label="链路数据记录" data-i18n-aria-label="monitor.recordActionsAria">
+                  <button id="monitorRecordToggle" class="monitor-action-button record" type="button" aria-label="记录" title="记录" data-i18n-aria-label="monitor.recordStart" data-i18n-title="monitor.recordStart">
+                    <svg aria-hidden="true"><use href="#icon-record"></use></svg>
+                    <span data-monitor-record-label data-i18n="monitor.recordStart">记录</span>
+                  </button>
+                  <button id="monitorMarkButton" class="monitor-action-button" type="button" disabled aria-label="标记" title="标记" data-i18n-aria-label="monitor.recordMark" data-i18n-title="monitor.recordMark">
+                    <svg aria-hidden="true"><use href="#icon-flag"></use></svg>
+                    <span data-i18n="monitor.recordMark">标记</span>
+                  </button>
+                  <button id="monitorExportButton" class="monitor-action-button" type="button" disabled aria-label="导出" title="导出" data-i18n-aria-label="monitor.recordExport" data-i18n-title="monitor.recordExport">
+                    <svg aria-hidden="true"><use href="#icon-download"></use></svg>
+                    <span data-i18n="monitor.recordExport">导出</span>
+                  </button>
+                </div>
+              </div>
+              <table class="link-table" aria-label="链路信息" data-i18n-aria-label="monitor.linkAria">
+                <colgroup>
+                  <col class="link-col-name">
+                  <col>
+                  <col>
+                  <col>
+                  <col>
+                  <col>
+                  <col>
+                  <col>
+                  <col class="link-col-tp">
+                  <col>
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th></th>
+                    <th data-i18n="monitor.frequency">频点</th>
+                    <th data-i18n="monitor.bandwidth">频宽</th>
+                    <th data-i18n="monitor.txPower">发射功率</th>
+                    <th data-i18n="monitor.mcs">调制编码</th>
+                    <th data-i18n="monitor.rssi">信号强度</th>
+                    <th data-i18n="monitor.snr">信噪比</th>
+                    <th data-i18n="monitor.errorStats">错误统计</th>
+                    <th data-i18n="monitor.throughput">吞吐率 (实际/理论)</th>
+                    <th data-i18n="monitor.distance">距离</th>
+                  </tr>
+                </thead>
+                <tbody id="monitorTableBody">
+                  <tr>
+                    <td data-i18n="monitor.local">本机</td>
+                    <td>2458</td>
+                    <td>20 MHz</td>
+                    <td>18 dBm</td>
+                    <td>7</td>
+                    <td>-58 dBm</td>
+                    <td>28.0</td>
+                    <td>0/100</td>
+                    <td>18/22 Kbps</td>
+                    <td>0 m</td>
+                  </tr>
+                  <tr>
+                    <td data-i18n="monitor.peer">对端</td>
+                    <td>2458</td>
+                    <td>20 MHz</td>
+                    <td>17 dBm</td>
+                    <td>6</td>
+                    <td>-63 dBm</td>
+                    <td>24.0</td>
+                    <td>0/100</td>
+                    <td>16/20 Kbps</td>
+                    <td>1 m</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="section-panel chart-panel">
+              <div class="section-head">
+                <h3 class="section-title" data-i18n="monitor.sweepTitle">环境扫频</h3>
+                <div class="chart-legend" aria-label="扫频图例" data-i18n-aria-label="monitor.legendAria">
+                  <svg width="638" height="18" viewBox="0 0 638 18" aria-hidden="true">
+                    <defs>
+                      <linearGradient id="sweep-interference-gradient-legend" gradientUnits="userSpaceOnUse" x1="48" y1="0" x2="118" y2="0">
+                        <stop offset="0%" stop-color="#22C55E"></stop>
+                        <stop offset="20%" stop-color="#22C55E"></stop>
+                        <stop offset="40%" stop-color="#A3E635"></stop>
+                        <stop offset="60%" stop-color="#F97316"></stop>
+                        <stop offset="100%" stop-color="#DC2626"></stop>
+                      </linearGradient>
+                    </defs>
+                    <text class="chart-label legend-interference-weak" x="2" y="13" data-i18n="monitor.weakInterference">弱干扰</text>
+                    <rect class="legend-interference-scale" x="48" y="4" width="70" height="10" rx="2" fill="url(#sweep-interference-gradient-legend)"></rect>
+                    <text class="chart-label legend-interference-strong" x="128" y="13" data-i18n="monitor.strongInterference">强干扰</text>
+                    <rect class="legend-indicator-local" x="188" y="4" width="26" height="10"></rect>
+                    <text class="chart-label" x="222" y="13" data-i18n="monitor.localFrequency">本机频点</text>
+                    <rect class="legend-indicator-peer" x="292" y="4" width="26" height="10"></rect>
+                    <text class="chart-label" x="326" y="13" data-i18n="monitor.peerFrequency">对端频点</text>
+                    <line class="legend-line-local" x1="396" y1="9" x2="422" y2="9"></line>
+                    <text class="chart-label" x="430" y="13" data-i18n="monitor.localSweepSignal">本机扫频信号</text>
+                    <line class="legend-line-remote" x1="524" y1="9" x2="550" y2="9"></line>
+                    <text class="chart-label" x="558" y="13" data-i18n="monitor.peerSweepSignal">对端扫频信号</text>
+                  </svg>
+                </div>
+              </div>
+              <div class="chart-body">
+                <div class="band-chart-grid">
+                  <div class="band-chart">
+                    <div class="band-title" data-i18n="monitor.band2g">2G 频段</div>
+                    <svg class="sweep-chart" viewBox="0 0 1120 286" role="img" aria-label="2G 频段环境扫频折线图" data-i18n-aria-label="monitor.chart2gAria">
+                      <defs>
+                        <linearGradient id="sweep-interference-gradient-2g" gradientUnits="userSpaceOnUse" x1="0" y1="10" x2="0" y2="224">
+                          <stop offset="0%" stop-color="#DC2626"></stop>
+                          <stop offset="40%" stop-color="#F97316"></stop>
+                          <stop offset="60%" stop-color="#A3E635"></stop>
+                          <stop offset="80%" stop-color="#22C55E"></stop>
+                          <stop offset="100%" stop-color="#22C55E"></stop>
+                        </linearGradient>
+                      </defs>
+                      <line class="chart-grid" x1="72" y1="10" x2="1092" y2="10"></line>
+                      <line class="chart-grid" x1="72" y1="53" x2="1092" y2="53"></line>
+                      <line class="chart-grid" x1="72" y1="96" x2="1092" y2="96"></line>
+                      <line class="chart-grid" x1="72" y1="139" x2="1092" y2="139"></line>
+                      <line class="chart-grid" x1="72" y1="182" x2="1092" y2="182"></line>
+                      <line class="chart-grid" x1="72" y1="224" x2="1092" y2="224"></line>
+                      <line class="chart-grid chart-x-grid" x1="72" y1="10" x2="72" y2="224"></line>
+                      <line class="chart-grid chart-x-grid" x1="199" y1="10" x2="199" y2="224"></line>
+                      <line class="chart-grid chart-x-grid" x1="329" y1="10" x2="329" y2="224"></line>
+                      <line class="chart-grid chart-x-grid" x1="455" y1="10" x2="455" y2="224"></line>
+                      <line class="chart-grid chart-x-grid" x1="582" y1="10" x2="582" y2="224"></line>
+                      <line class="chart-grid chart-x-grid" x1="709" y1="10" x2="709" y2="224"></line>
+                      <line class="chart-grid chart-x-grid" x1="839" y1="10" x2="839" y2="224"></line>
+                      <line class="chart-grid chart-x-grid" x1="966" y1="10" x2="966" y2="224"></line>
+                      <line class="chart-grid chart-x-grid" x1="1092" y1="10" x2="1092" y2="224"></line>
+                      <line class="chart-axis" x1="72" y1="224" x2="1092" y2="224"></line>
+                      <line class="chart-axis" x1="72" y1="10" x2="72" y2="224"></line>
+                      <text class="chart-tick" x="28" y="16">-40</text>
+                      <text class="chart-tick" x="28" y="59">-55</text>
+                      <text class="chart-tick" x="28" y="102">-70</text>
+                      <text class="chart-tick" x="28" y="145">-85</text>
+                      <text class="chart-tick" x="18" y="188">-100</text>
+                      <text class="chart-tick" x="18" y="230">-115</text>
+                      <text class="chart-tick chart-x-tick" x="72" y="244" transform="rotate(-55 72 244)">2402</text>
+                      <text class="chart-tick chart-x-tick" x="199" y="244" transform="rotate(-55 199 244)">2412</text>
+                      <text class="chart-tick chart-x-tick" x="329" y="244" transform="rotate(-55 329 244)">2422</text>
+                      <text class="chart-tick chart-x-tick" x="455" y="244" transform="rotate(-55 455 244)">2431</text>
+                      <text class="chart-tick chart-x-tick" x="582" y="244" transform="rotate(-55 582 244)">2441</text>
+                      <text class="chart-tick chart-x-tick" x="709" y="244" transform="rotate(-55 709 244)">2451</text>
+                      <text class="chart-tick chart-x-tick" x="839" y="244" transform="rotate(-55 839 244)">2461</text>
+                      <text class="chart-tick chart-x-tick" x="966" y="244" transform="rotate(-55 966 244)">2470</text>
+                      <text class="chart-tick chart-x-tick" x="1092" y="244" transform="rotate(-55 1092 244)">2480</text>
+                      <text class="chart-label chart-frequency-label" x="548" y="280" data-i18n="monitor.frequencyAxis">频点</text>
+                      <text class="chart-label" transform="translate(18 178) rotate(-90)" data-i18n="monitor.interferenceAxis">信号干扰强度 dBm</text>
+                      <polyline class="chart-line-local" stroke="url(#sweep-interference-gradient-2g)" points="72,170 199,150 329,163 455,102 582,128 709,68 839,109 966,88 1092,142"></polyline>
+                      <polyline class="chart-line-remote" stroke="url(#sweep-interference-gradient-2g)" points="72,186 199,170 329,135 455,155 582,91 709,119 839,78 966,114 1092,98"></polyline>
+                    </svg>
+                  </div>
+                  <div class="band-chart">
+                    <div class="band-title" data-i18n="monitor.band5g">5G 频段</div>
+                    <svg class="sweep-chart" viewBox="0 0 1120 286" role="img" aria-label="5G 频段环境扫频折线图" data-i18n-aria-label="monitor.chart5gAria">
+                      <defs>
+                        <linearGradient id="sweep-interference-gradient-5g" gradientUnits="userSpaceOnUse" x1="0" y1="10" x2="0" y2="224">
+                          <stop offset="0%" stop-color="#DC2626"></stop>
+                          <stop offset="40%" stop-color="#F97316"></stop>
+                          <stop offset="60%" stop-color="#A3E635"></stop>
+                          <stop offset="80%" stop-color="#22C55E"></stop>
+                          <stop offset="100%" stop-color="#22C55E"></stop>
+                        </linearGradient>
+                      </defs>
+                      <line class="chart-grid" x1="72" y1="10" x2="1092" y2="10"></line>
+                      <line class="chart-grid" x1="72" y1="53" x2="1092" y2="53"></line>
+                      <line class="chart-grid" x1="72" y1="96" x2="1092" y2="96"></line>
+                      <line class="chart-grid" x1="72" y1="139" x2="1092" y2="139"></line>
+                      <line class="chart-grid" x1="72" y1="182" x2="1092" y2="182"></line>
+                      <line class="chart-grid" x1="72" y1="224" x2="1092" y2="224"></line>
+                      <line class="chart-grid chart-x-grid" x1="72" y1="10" x2="72" y2="224"></line>
+                      <line class="chart-grid chart-x-grid" x1="199" y1="10" x2="199" y2="224"></line>
+                      <line class="chart-grid chart-x-grid" x1="329" y1="10" x2="329" y2="224"></line>
+                      <line class="chart-grid chart-x-grid" x1="455" y1="10" x2="455" y2="224"></line>
+                      <line class="chart-grid chart-x-grid" x1="582" y1="10" x2="582" y2="224"></line>
+                      <line class="chart-grid chart-x-grid" x1="709" y1="10" x2="709" y2="224"></line>
+                      <line class="chart-grid chart-x-grid" x1="839" y1="10" x2="839" y2="224"></line>
+                      <line class="chart-grid chart-x-grid" x1="966" y1="10" x2="966" y2="224"></line>
+                      <line class="chart-grid chart-x-grid" x1="1092" y1="10" x2="1092" y2="224"></line>
+                      <line class="chart-axis" x1="72" y1="224" x2="1092" y2="224"></line>
+                      <line class="chart-axis" x1="72" y1="10" x2="72" y2="224"></line>
+                      <text class="chart-tick" x="28" y="16">-40</text>
+                      <text class="chart-tick" x="28" y="59">-55</text>
+                      <text class="chart-tick" x="28" y="102">-70</text>
+                      <text class="chart-tick" x="28" y="145">-85</text>
+                      <text class="chart-tick" x="18" y="188">-100</text>
+                      <text class="chart-tick" x="18" y="230">-115</text>
+                      <text class="chart-tick chart-x-tick" x="72" y="244" transform="rotate(-55 72 244)">5180</text>
+                      <text class="chart-tick chart-x-tick" x="199" y="244" transform="rotate(-55 199 244)">5260</text>
+                      <text class="chart-tick chart-x-tick" x="329" y="244" transform="rotate(-55 329 244)">5342</text>
+                      <text class="chart-tick chart-x-tick" x="455" y="244" transform="rotate(-55 455 244)">5422</text>
+                      <text class="chart-tick chart-x-tick" x="582" y="244" transform="rotate(-55 582 244)">5502</text>
+                      <text class="chart-tick chart-x-tick" x="709" y="244" transform="rotate(-55 709 244)">5583</text>
+                      <text class="chart-tick chart-x-tick" x="839" y="244" transform="rotate(-55 839 244)">5665</text>
+                      <text class="chart-tick chart-x-tick" x="966" y="244" transform="rotate(-55 966 244)">5745</text>
+                      <text class="chart-tick chart-x-tick" x="1092" y="244" transform="rotate(-55 1092 244)">5825</text>
+                      <text class="chart-label chart-frequency-label" x="548" y="280" data-i18n="monitor.frequencyAxis">频点</text>
+                      <text class="chart-label" transform="translate(18 178) rotate(-90)" data-i18n="monitor.interferenceAxis">信号干扰强度 dBm</text>
+                      <polyline class="chart-line-local" stroke="url(#sweep-interference-gradient-5g)" points="72,154 199,126 329,147 455,110 582,83 709,131 839,101 966,120 1092,93"></polyline>
+                      <polyline class="chart-line-remote" stroke="url(#sweep-interference-gradient-5g)" points="72,177 199,162 329,122 455,143 582,104 709,73 839,110 966,88 1092,126"></polyline>
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="linkConfigPage" class="link-config-page" hidden>
+            <div class="direction-panel" aria-label="目标设备配置" data-i18n-aria-label="link.targetPanelAria">
+              <div class="direction-copy">
+                <span class="direction-label" data-i18n="link.targetLabel">目标设备</span>
+              </div>
+              <div class="segment direction-segment" role="group" aria-label="目标设备" data-i18n-aria-label="link.targetAria">
+                <button class="segment-button active" type="button" data-target-scope="local" data-i18n="link.localTarget">本机</button>
+                <button class="segment-button" type="button" data-target-scope="peer" data-i18n="link.peerTarget">对端</button>
+              </div>
+            </div>
+
+            <div class="config-form" aria-label="链路配置参数" data-i18n-aria-label="link.formAria">
+              <div class="config-row">
+                <span class="config-label" data-i18n="link.bandLabel">频段设置</span>
+                <div class="config-controls">
+                  <div class="segment" role="group" aria-label="频段设置模式" data-i18n-aria-label="link.bandModeAria" data-target="bandSelect" data-config-key="bandMode">
+                    <button class="segment-button active" type="button" data-mode="auto" data-i18n="link.auto">自动</button>
+                    <button class="segment-button" type="button" data-mode="manual" data-i18n="link.manual">手动</button>
+                  </div>
+                  <select id="bandSelect" class="config-select" disabled>
+                    <option value="2g" selected>2G</option>
+                    <option value="5g">5G</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="config-row">
+                <span class="config-label" data-i18n="link.channelLabel">信道设置</span>
+                <div class="config-controls">
+                  <div class="segment" role="group" aria-label="信道设置模式" data-i18n-aria-label="link.channelModeAria" data-target="channelSelect" data-config-key="channelMode">
+                    <button class="segment-button active" type="button" data-mode="auto" data-i18n="link.auto">自动</button>
+                    <button class="segment-button" type="button" data-mode="manual" data-i18n="link.manual">手动</button>
+                  </div>
+                  <select id="channelSelect" class="config-select" disabled aria-label="信道" data-i18n-aria-label="link.channelAria"></select>
+                </div>
+              </div>
+
+              <div class="config-row">
+                <span class="config-label" data-i18n="link.bandwidthLabel">频宽设置</span>
+                <div class="config-controls">
+                  <div class="segment" role="group" aria-label="频宽设置模式" data-i18n-aria-label="link.bandwidthModeAria" data-target="bandwidthSelect" data-config-key="bandwidthMode">
+                    <button class="segment-button active" type="button" data-mode="auto" data-i18n="link.auto">自动</button>
+                    <button class="segment-button" type="button" data-mode="manual" data-i18n="link.manual">手动</button>
+                  </div>
+                  <select id="bandwidthSelect" class="config-select" disabled>
+                    <option value="0">1.25 MHz</option>
+                    <option value="1">2.5 MHz</option>
+                    <option value="2" selected>5 MHz</option>
+                    <option value="3">10 MHz</option>
+                    <option value="4">20 MHz</option>
+                    <option value="5">40 MHz</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="config-row">
+                <span class="config-label">MCS</span>
+                <div class="config-controls">
+                  <div class="segment" role="group" aria-label="MCS 设置模式" data-i18n-aria-label="link.mcsModeAria" data-target="mcsSelect" data-config-key="mcsMode">
+                    <button class="segment-button active" type="button" data-mode="auto" data-i18n="link.auto">自动</button>
+                    <button class="segment-button" type="button" data-mode="manual" data-i18n="link.manual">手动</button>
+                  </div>
+                  <select id="mcsSelect" class="config-select" disabled>
+                    <option>-2</option>
+                    <option>-1</option>
+                    <option>0</option>
+                    <option>3</option>
+                    <option>4</option>
+                    <option selected>6</option>
+                    <option>7</option>
+                    <option>9</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="config-row">
+                <span class="config-label" data-i18n="link.powerLabel">功率设置</span>
+                <div class="config-controls">
+                  <div class="segment" role="group" aria-label="功率设置模式" data-i18n-aria-label="link.powerModeAria" data-target="powerSelect" data-config-key="powerAuto">
+                    <button class="segment-button active" type="button" data-mode="auto" data-i18n="link.auto">自动</button>
+                    <button class="segment-button" type="button" data-mode="manual" data-i18n="link.manual">手动</button>
+                  </div>
+                  <select id="powerSelect" class="config-select" disabled aria-label="发射功率" data-i18n-aria-label="link.powerAria">
+                    <option value="15">15 dBm</option>
+                    <option value="16">16 dBm</option>
+                    <option value="17">17 dBm</option>
+                    <option value="18">18 dBm</option>
+                    <option value="19">19 dBm</option>
+                    <option value="20" selected>20 dBm</option>
+                    <option value="21">21 dBm</option>
+                    <option value="22">22 dBm</option>
+                    <option value="23">23 dBm</option>
+                    <option value="24">24 dBm</option>
+                    <option value="25">25 dBm</option>
+                    <option value="26">26 dBm</option>
+                    <option value="27">27 dBm</option>
+                  </select>
+                </div>
+              </div>
+
+            </div>
+
+            <div class="config-form wideband-form" aria-label="带宽切换" data-i18n-aria-label="link.widebandFormAria">
+              <div class="config-row">
+                <span class="config-label" data-i18n="link.widebandLabel">带宽切换</span>
+                <div class="config-controls">
+                  <div class="segment" role="group" aria-label="带宽切换" data-i18n-aria-label="link.widebandAria" data-config-key="frameChange">
+                    <button class="segment-button active" type="button" data-frame-change="default" data-i18n="link.defaultWideband">默认</button>
+                    <button class="segment-button" type="button" data-frame-change="switch" data-i18n="link.switch">切换</button>
+                  </div>
+                  <span class="wideband-status" data-i18n="link.defaultActive">当前大带宽方向为DEV → AP</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="persist-actions">
+              <span id="linkConfigStatus" class="persist-status" data-i18n="link.notApplied">未下发链路配置</span>
+            </div>
+          </div>
+
+          <div id="profilePage" class="profile-page" hidden>
+            <div class="json-card">
+              <div class="json-head">
+                <h3 class="json-title" data-i18n="profile.title">JSON 配置编辑</h3>
+                <div class="json-head-tools">
+                  <div class="profile-search" role="search" aria-label="搜索配置项" data-i18n-aria-label="profile.searchAria">
+                    <input id="configSearch" class="config-search" type="search" placeholder="搜索配置项" data-i18n-placeholder="profile.searchPlaceholder">
+                    <span id="configSearchStatus" class="search-status" data-i18n="profile.noResults">无结果</span>
+                    <button id="configSearchButton" class="search-icon-button" type="button" aria-label="搜索" title="搜索" data-i18n-aria-label="profile.search" data-i18n-title="profile.search"><svg aria-hidden="true"><use href="#icon-search"></use></svg></button>
+                    <button id="configPrevButton" class="search-icon-button" type="button" aria-label="上一个" title="上一个" data-i18n-aria-label="profile.previous" data-i18n-title="profile.previous"><svg aria-hidden="true"><use href="#icon-chevron-up"></use></svg></button>
+                    <button id="configNextButton" class="search-icon-button" type="button" aria-label="下一个" title="下一个" data-i18n-aria-label="profile.next" data-i18n-title="profile.next"><svg aria-hidden="true"><use href="#icon-chevron-down"></use></svg></button>
+                  </div>
+                </div>
+              </div>
+              <textarea id="jsonEditor" class="json-editor" spellcheck="false" wrap="off"></textarea>
+            </div>
+
+            <div class="profile-bottom">
+              <div class="segment profile-target-segment" role="group" aria-label="目标设备" data-i18n-aria-label="profile.targetAria">
+                <button class="segment-button active" type="button" data-value="local" data-profile-target-scope="local" data-i18n="profile.localTarget">本机</button>
+                <button class="segment-button" type="button" data-value="peer" data-profile-target-scope="peer" data-i18n="profile.peerTarget">对端</button>
+              </div>
+              <div class="profile-actions" aria-label="配置文件操作" data-i18n-aria-label="profile.actionsAria">
+                <div class="button-group" aria-label="读写" data-i18n-aria-label="profile.readWriteAria">
+                  <button id="readConfigFile" class="outline-button" type="button" data-i18n="profile.read">读取</button>
+                  <button id="writeConfigFile" class="primary-button" type="button" data-i18n="profile.save">保存</button>
+                </div>
+                <div class="button-group" aria-label="文件" data-i18n-aria-label="profile.fileAria">
+                  <button id="importConfigFile" class="outline-button" type="button" data-i18n="profile.import">导入</button>
+                  <button id="exportConfigFile" class="outline-button" type="button" data-i18n="profile.export">导出</button>
+                </div>
+                <div class="button-group" aria-label="恢复" data-i18n-aria-label="profile.restoreAria">
+                  <button id="resetConfigFile" class="danger-button" type="button" data-i18n="profile.restoreFactory">恢复出厂</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="persistPage" class="persist-page" hidden>
+            <div class="direction-panel" aria-label="目标设备配置" data-i18n-aria-label="persist.targetPanelAria">
+              <div class="direction-copy">
+                <span class="direction-label" data-i18n="persist.targetLabel">目标设备</span>
+              </div>
+              <div class="segment direction-segment persist-direction-segment" role="group" aria-label="目标设备" data-i18n-aria-label="persist.targetAria">
+                <button class="segment-button active" type="button" data-value="local" data-persist-target-scope="local" data-i18n="persist.localTarget">本机</button>
+                <button class="segment-button" type="button" data-value="peer" data-persist-target-scope="peer" data-i18n="persist.peerTarget">对端</button>
+              </div>
+            </div>
+
+            <div class="config-form" aria-label="持久配置参数" data-i18n-aria-label="persist.formAria">
+              <div class="config-row">
+                <span class="config-label" data-i18n="persist.roleLabel">角色配置</span>
+                <div class="config-controls">
+                  <div class="segment" role="group" aria-label="角色配置" data-i18n-aria-label="persist.roleAria" data-persist-key="role">
+                    <button class="segment-button active" type="button" data-value="unset" data-unset="true" data-i18n="persist.unset">未设置</button>
+                    <button class="segment-button" type="button" data-value="AP">AP</button>
+                    <button class="segment-button" type="button" data-value="DEV">DEV</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="config-row">
+                <label class="config-label" for="peerMacInput" data-i18n="persist.peerMacLabel">对端 Mac地址</label>
+                <div class="config-controls">
+                  <input id="peerMacInput" class="config-text" type="text" placeholder="xx:xx:xx:xx" pattern="[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){3}" data-persist-input>
+                </div>
+              </div>
+
+              <div class="config-row">
+                <span class="config-label" data-i18n="persist.bandLabel">频段设置</span>
+                <div class="config-controls">
+                  <div class="segment" role="group" aria-label="持久频段设置" data-i18n-aria-label="persist.bandAria" data-persist-key="band">
+                    <button class="segment-button active" type="button" data-value="unset" data-unset="true" data-i18n="persist.unset">未设置</button>
+                    <button class="segment-button" type="button" data-value="auto" data-i18n="link.auto">自动</button>
+                    <button class="segment-button" type="button" data-value="2g">2G</button>
+                    <button class="segment-button" type="button" data-value="5g">5G</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="config-row">
+                <span class="config-label" data-i18n="persist.powerLabel">功率设置</span>
+                <div class="config-controls">
+                  <div class="segment" role="group" aria-label="功率设置模式" data-i18n-aria-label="persist.powerAria" data-persist-key="powerMode">
+                    <button class="segment-button active" type="button" data-value="unset" data-power="unset" data-unset="true" data-i18n="persist.unset">未设置</button>
+                    <button class="segment-button" type="button" data-value="fixed" data-power="fixed" data-i18n="persist.fixedPower">固定值</button>
+                    <button class="segment-button" type="button" data-value="range" data-power="range" data-i18n="persist.range">范围</button>
+                  </div>
+                  <div class="power-values">
+                    <input id="fixedPowerInput" class="config-number power-fixed-input" type="number" min="0" max="31" placeholder="固定功率" aria-label="固定功率" data-i18n-placeholder="persist.fixedPowerPlaceholder" data-i18n-aria-label="persist.fixedPowerAria" disabled data-persist-input>
+                    <input id="minPowerInput" class="config-number power-range-input" type="number" min="0" max="31" placeholder="最小" aria-label="最小功率" data-i18n-placeholder="persist.minPlaceholder" data-i18n-aria-label="persist.minPowerAria" disabled data-persist-input>
+                    <span class="range-separator">-</span>
+                    <input id="maxPowerInput" class="config-number power-range-input" type="number" min="0" max="31" placeholder="最大" aria-label="最大功率" data-i18n-placeholder="persist.maxPlaceholder" data-i18n-aria-label="persist.maxPowerAria" disabled data-persist-input>
+                  </div>
+                </div>
+              </div>
+
+              <div class="config-row">
+                <label class="config-label" for="freqListInput" data-i18n="persist.freqListLabel">频点列表设置</label>
+                <div class="config-controls">
+                  <input id="freqListInput" class="config-text freq-list-input" type="text" placeholder="2400,2411,2422" aria-label="频点列表设置" data-i18n-placeholder="persist.freqPlaceholder" data-i18n-aria-label="persist.freqListAria" data-persist-input>
+                </div>
+              </div>
+
+              <div class="config-row">
+                <label class="config-label" for="uartBaudrateInput" data-i18n="persist.uartBaudrateLabel">Mavlink串口波特率</label>
+                <div class="config-controls">
+                  <div class="baudrate-combo">
+                    <input id="uartBaudrateInput" class="config-text baudrate-input" type="text" inputmode="numeric" placeholder="115200" aria-label="Mavlink串口波特率" data-i18n-placeholder="persist.uartBaudratePlaceholder" data-i18n-aria-label="persist.uartBaudrateAria" data-persist-input>
+                    <button id="uartBaudrateToggle" class="baudrate-toggle" type="button" aria-label="常见波特率" data-i18n-aria-label="persist.uartBaudrateOptionsAria"></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="persist-actions">
+              <span id="persistStatus" class="persist-status" data-i18n="persist.clean">配置已同步</span>
+              <div class="persist-action-buttons">
+                <button id="persistClearButton" class="danger-button" type="button" data-i18n="persist.clear">清除配置</button>
+                <button id="persistRebootButton" class="primary-button" type="button" data-i18n="persist.reboot">重启生效</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="settingsPage" class="settings-page" hidden>
+            <div class="config-form settings-form" aria-label="软件设置" data-i18n-aria-label="settings.formAria">
+              <div class="config-row">
+                <span class="config-label" data-i18n="settings.themeLabel">外观</span>
+                <div class="config-controls">
+                  <div id="themeSegment" class="segment settings-segment" role="group" aria-label="外观" data-i18n-aria-label="settings.themeLabel" data-setting-key="theme">
+                    <button class="segment-button active" type="button" data-setting-value="light" data-i18n="settings.themeLight">浅色</button>
+                    <button class="segment-button" type="button" data-setting-value="dark" data-i18n="settings.themeDark">深色</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="config-row">
+                <label class="config-label" for="accentColorText" data-i18n="settings.accentLabel">主题颜色</label>
+                <div class="config-controls">
+                  <div class="theme-color-control">
+                    <input id="accentColorInput" class="theme-color-input" type="color" value="#3E7BE1" aria-label="主题颜色" data-i18n-aria-label="settings.accentLabel">
+                    <input id="accentColorText" class="theme-color-text" type="text" value="#3E7BE1" maxlength="7" spellcheck="false" aria-label="主题颜色" data-i18n-aria-label="settings.accentLabel">
+                  </div>
+                </div>
+              </div>
+
+              <div class="config-row">
+                <span class="config-label" data-i18n="settings.languageLabel">显示语言</span>
+                <div class="config-controls">
+                  <div id="languageSegment" class="segment settings-segment" role="group" aria-label="显示语言" data-i18n-aria-label="settings.languageLabel" data-setting-key="language">
+                    <button class="segment-button active" type="button" data-setting-value="zh" data-i18n="settings.languageZh">中文</button>
+                    <button class="segment-button" type="button" data-setting-value="en" data-i18n="settings.languageEn">English</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="config-row">
+                <span class="config-label" data-i18n="settings.versionLabel">软件版本号</span>
+                <div class="config-controls settings-version-controls">
+                  <span id="settingsVersionValue" class="settings-version-value">--</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="firmwarePage" class="firmware-page" hidden>
+            <div class="firmware-card">
+              <div class="firmware-row">
+                <span class="firmware-label" data-i18n="firmware.targetLabel">升级目标</span>
+                <div class="target-control">
+                  <div class="segment" role="group" aria-label="升级目标" data-i18n-aria-label="firmware.targetAria" data-upgrade-target-group>
+                    <button class="segment-button active" type="button" data-upgrade-target="local" data-i18n="firmware.localUpgrade">本机升级</button>
+                    <button class="segment-button" type="button" data-upgrade-target="remote" data-i18n="firmware.remoteUpgrade">对端升级</button>
+                  </div>
+                  <span id="upgradeTargetHint" class="target-hint" title="">--</span>
+                </div>
+              </div>
+
+              <div class="firmware-row">
+                <label class="firmware-label" for="firmwareFile" data-i18n="firmware.fileLabel">升级文件</label>
+                <div class="file-picker">
+                  <div id="firmwareFileName" class="file-box" data-i18n="firmware.filePlaceholder">请选择 VT4*.img 固件文件</div>
+                  <button id="browseFirmware" class="outline-button" type="button" data-i18n="firmware.browse">选择文件</button>
+                  <input id="firmwareFile" class="file-input" type="file" accept=".img">
+                </div>
+              </div>
+
+              <div class="firmware-row">
+                <span class="firmware-label" data-i18n="firmware.progressLabel">升级进度</span>
+                <div class="progress-line">
+                  <div class="progress-track" aria-label="升级进度" data-i18n-aria-label="firmware.progressAria">
+                    <div id="firmwareProgress" class="progress-fill"></div>
+                  </div>
+                  <span id="firmwareProgressValue" class="progress-value">0%</span>
+                </div>
+              </div>
+
+              <div class="firmware-actions">
+                <button id="checkFirmwareUpdate" class="outline-button" type="button" disabled data-i18n="firmware.checkUpdate">检查更新</button>
+                <button id="startUpgrade" class="primary-button" type="button" disabled data-i18n="firmware.start">开始升级</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="emptyPage" class="blank-panel" hidden>
+            <div id="placeholderTitle" class="placeholder-title" data-i18n="nav.infoTitle">设备信息</div>
+            <div id="placeholderText" class="placeholder-text" data-i18n="empty.moduleNotReadyText">此模块暂未接入设备接口</div>
+          </div>
+        </section>
+      </div>
+      <footer class="status-bar" aria-label="运行状态" data-i18n-aria-label="status.barAria">
+        <div id="daemonStatus" class="daemon-status" data-state="offline">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="daemonStatusText" data-i18n="status.daemonDisconnected">l4_daemon 未连接</span>
+        </div>
+        <div class="status-latest">
+          <span class="status-label" data-i18n="status.logLabel">运行日志</span>
+          <span id="operationLog" class="operation-log" aria-live="polite" data-i18n="status.waitingOperation">等待操作</span>
+        </div>
+        <span id="appInfo" class="section-meta status-app-info">--</span>
+      </footer>
+    </div>
+  </main>
+
+  <div id="appDialog" class="app-dialog" hidden>
+    <div class="app-dialog-backdrop" data-dialog-action="cancel"></div>
+    <section class="app-dialog-panel" role="dialog" aria-modal="true" aria-labelledby="dialogTitle" aria-describedby="dialogMessage" tabindex="-1">
+      <div id="dialogIcon" class="app-dialog-icon" aria-hidden="true">
+        <svg><use href="#icon-alert-triangle"></use></svg>
+      </div>
+      <div class="app-dialog-copy">
+        <div id="dialogKicker" class="app-dialog-kicker" data-i18n="dialog.defaultKicker">操作确认</div>
+        <h2 id="dialogTitle" class="app-dialog-title" data-i18n="dialog.defaultTitle">确认操作</h2>
+        <p id="dialogMessage" class="app-dialog-message"></p>
+        <div class="app-dialog-actions">
+          <button id="dialogCancel" class="app-dialog-button secondary" type="button" data-i18n="common.cancel">取消</button>
+          <button id="dialogConfirm" class="app-dialog-button primary" type="button" data-i18n="common.confirm">确认</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>
