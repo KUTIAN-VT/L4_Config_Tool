@@ -125,7 +125,15 @@
       align-items: center;
       justify-content: flex-start;
       gap: 6px;
-      min-width: 160px;
+      min-width: 0;
+    }
+
+    .pair-mac-field {
+      max-width: 100%;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      vertical-align: middle;
     }
 
     .pair-mac-input {
@@ -137,6 +145,39 @@
       background: var(--field-bg);
       font: 600 12px/1 "Cascadia Mono", "Consolas", monospace;
       text-transform: uppercase;
+    }
+
+    .pair-mac-status {
+      width: 14px;
+      height: 18px;
+      flex: 0 0 14px;
+      display: inline-grid;
+      place-items: center;
+      font-size: 14px;
+      font-weight: 900;
+      line-height: 1;
+      visibility: hidden;
+    }
+
+    .pair-mac-field:focus-within .pair-mac-status[data-state="valid"],
+    .pair-mac-field:focus-within .pair-mac-status[data-state="invalid"] {
+      visibility: visible;
+    }
+
+    .pair-mac-status[data-state="valid"] {
+      color: var(--green);
+    }
+
+    .pair-mac-status[data-state="valid"]::before {
+      content: "\2713";
+    }
+
+    .pair-mac-status[data-state="invalid"] {
+      color: var(--danger);
+    }
+
+    .pair-mac-status[data-state="invalid"]::before {
+      content: "X";
     }
 
     .pair-mac-input:focus {
@@ -386,6 +427,40 @@
       justify-content: flex-end;
       gap: 10px;
       min-width: 0;
+    }
+
+    .top-role {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .top-role-value {
+      min-width: 72px;
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 16px;
+      color: var(--text);
+      background: var(--field-bg);
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      font-weight: 700;
+    }
+
+    .top-role-value[data-role=""] {
+      color: var(--muted);
+      background: var(--field-disabled);
+      border-color: var(--line);
+    }
+
+    .top-role-text {
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
     }
 
     .top-device {
@@ -931,24 +1006,6 @@
       text-overflow: ellipsis;
     }
 
-    .mode-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 14px;
-      min-height: 62px;
-      padding: 0 16px;
-      background: var(--surface-1);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-    }
-
-    .mode-title {
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 600;
-    }
-
     .segment {
       display: inline-grid;
       grid-auto-flow: column;
@@ -1029,6 +1086,78 @@
       margin: 0;
       font-size: 14px;
       line-height: 1.2;
+    }
+
+    .pair-head-actions {
+      min-width: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .pair-refresh-button {
+      width: 30px;
+      height: 30px;
+      display: inline-grid;
+      place-items: center;
+      color: var(--blue);
+      background: var(--surface-1);
+      border: 1px solid var(--blue-border);
+      border-radius: 6px;
+      outline: none;
+      transition: color 120ms ease, background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+    }
+
+    .pair-refresh-button svg {
+      width: 15px;
+      height: 15px;
+    }
+
+    .pair-refresh-button:hover {
+      background: var(--surface-hover);
+      border-color: var(--blue-border-strong);
+    }
+
+    .pair-refresh-button:focus-visible {
+      box-shadow: 0 0 0 3px var(--blue-ring);
+    }
+
+    .pair-refresh-button:disabled,
+    .pair-refresh-button:disabled:hover {
+      cursor: not-allowed;
+      color: var(--muted);
+      background: var(--field-disabled);
+      border-color: var(--line);
+      box-shadow: none;
+    }
+
+    .pair-slot-count-control {
+      min-width: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .pair-slot-count-control[hidden] {
+      display: none;
+    }
+
+    .pair-slot-count-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .pair-slot-count-select {
+      width: 82px;
+      min-width: 82px;
+    }
+
+    .pair-slot-count-select + .custom-select-config {
+      width: 82px;
     }
 
     .monitor-actions {
@@ -1134,21 +1263,33 @@
       font-weight: 700;
     }
 
+    .pair-table td:nth-child(1),
+    .pair-table th:nth-child(1) {
+      width: 12%;
+      text-align: left;
+    }
+
+    .pair-table td:nth-child(2),
+    .pair-table th:nth-child(2) {
+      width: 18%;
+      text-align: left;
+    }
+
     .pair-table td:nth-child(3),
     .pair-table th:nth-child(3) {
-      width: 160px;
+      width: 25%;
       text-align: left;
     }
 
     .pair-table td:nth-child(4),
     .pair-table th:nth-child(4) {
-      width: 170px;
+      width: 20%;
       text-align: left;
     }
 
     .pair-table td:nth-child(5),
     .pair-table th:nth-child(5) {
-      width: 220px;
+      width: 25%;
       text-align: left;
     }
 
@@ -1191,10 +1332,25 @@
 
     .monitor-page {
       min-height: 0;
-      display: grid;
-      grid-template-rows: auto auto;
-      align-content: start;
-      gap: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 12px;
+    }
+
+    .monitor-page > .section-panel {
+      align-self: stretch;
+      flex: 0 0 auto;
+    }
+
+    .monitor-link-panel {
+      grid-template-rows: auto minmax(0, auto);
+      overflow: hidden;
+    }
+
+    .monitor-table-wrap {
+      min-height: 0;
+      overflow: visible;
     }
 
     .link-table {
@@ -1248,7 +1404,7 @@
     .chart-body {
       min-height: 0;
       align-self: start;
-      padding: 8px 12px 10px;
+      padding: 4px 12px 6px;
     }
 
     .band-chart-grid {
@@ -1256,7 +1412,7 @@
       display: grid;
       grid-template-columns: minmax(0, 1fr);
       align-content: start;
-      gap: 6px;
+      gap: 4px;
     }
 
     .band-chart {
@@ -1276,7 +1432,7 @@
     .sweep-chart {
       width: 100%;
       height: auto;
-      aspect-ratio: 1120 / 286;
+      aspect-ratio: 1120 / 246;
       align-self: start;
       display: block;
       color: var(--muted);
@@ -1405,7 +1561,8 @@
     }
 
     .settings-page {
-      grid-template-rows: auto;
+      grid-template-rows: auto minmax(260px, 1fr);
+      align-content: stretch;
     }
 
     .settings-form .config-row {
@@ -1492,6 +1649,95 @@
       font-weight: 700;
       color: var(--text);
       text-align: right;
+    }
+
+    .runtime-log-panel {
+      min-height: 280px;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      overflow: hidden;
+      background: var(--surface-1);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .runtime-log-head {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 14px 16px;
+      background: var(--surface-1);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .runtime-log-copy {
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+    }
+
+    .runtime-log-title {
+      margin: 0;
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 800;
+      line-height: 1.25;
+    }
+
+    .runtime-log-description {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.45;
+    }
+
+    .runtime-log-save {
+      flex: 0 0 auto;
+      min-width: 92px;
+    }
+
+    .runtime-log-list {
+      display: grid;
+      align-content: start;
+      gap: 2px;
+      min-height: 0;
+      padding: 14px 16px;
+      overflow: auto;
+      color: var(--text);
+      background: var(--surface-1);
+      font: 600 12px/1.55 "Cascadia Mono", "Consolas", monospace;
+      white-space: normal;
+      tab-size: 2;
+    }
+
+    .runtime-log-entry {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: minmax(88px, auto) 154px minmax(0, 1fr);
+      align-items: start;
+      gap: 10px;
+      padding: 2px 0;
+    }
+
+    .runtime-log-target {
+      color: var(--blue);
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .runtime-log-time {
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .runtime-log-message {
+      min-width: 0;
+      color: var(--text);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
     }
 
     .direction-panel {
@@ -2330,6 +2576,11 @@
         padding: 0 16px;
       }
 
+      .top-role-value {
+        min-width: 56px;
+        padding: 0 12px;
+      }
+
       .top-device {
         width: 188px;
       }
@@ -2376,6 +2627,26 @@
       .app-dialog-panel {
         width: min(500px, calc(100vw - 32px));
         padding: 18px;
+      }
+
+      .runtime-log-head {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .runtime-log-save {
+        width: 100%;
+      }
+
+      .runtime-log-entry {
+        grid-template-columns: 1fr;
+        gap: 2px;
+        padding: 6px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .runtime-log-entry:last-child {
+        border-bottom: 0;
       }
     }
 
@@ -2458,7 +2729,7 @@
 
     .pair-table td:nth-child(5),
     .pair-table th:nth-child(5) {
-      width: 220px;
+      width: 10%;
     }
 
     :root[data-theme="dark"] body {
@@ -2468,9 +2739,10 @@
     :root[data-theme="dark"] .app-window,
     :root[data-theme="dark"] .sidebar,
     :root[data-theme="dark"] .info-cell,
-    :root[data-theme="dark"] .mode-row,
     :root[data-theme="dark"] .section-panel,
     :root[data-theme="dark"] .config-form,
+    :root[data-theme="dark"] .runtime-log-panel,
+    :root[data-theme="dark"] .runtime-log-list,
     :root[data-theme="dark"] .firmware-card,
     :root[data-theme="dark"] .json-card,
     :root[data-theme="dark"] .custom-select-list,
@@ -2500,6 +2772,7 @@
     :root[data-theme="dark"] .placeholder-title,
     :root[data-theme="dark"] .info-value,
     :root[data-theme="dark"] .section-title,
+    :root[data-theme="dark"] .runtime-log-title,
     :root[data-theme="dark"] .json-title,
     :root[data-theme="dark"] .app-dialog-title {
       color: var(--text);
@@ -2513,6 +2786,7 @@
     :root[data-theme="dark"] .empty-cell,
     :root[data-theme="dark"] .json-meta,
     :root[data-theme="dark"] .search-status,
+    :root[data-theme="dark"] .runtime-log-description,
     :root[data-theme="dark"] .wideband-status,
     :root[data-theme="dark"] .persist-status,
     :root[data-theme="dark"] .progress-value,
@@ -2616,6 +2890,7 @@
     :root[data-theme="dark"] .topbar,
     :root[data-theme="dark"] .status-bar,
     :root[data-theme="dark"] .section-head,
+    :root[data-theme="dark"] .runtime-log-head,
     :root[data-theme="dark"] .json-head {
       background: var(--surface-1);
       border-color: var(--line);

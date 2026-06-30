@@ -15,7 +15,13 @@ const state = {
   firmwarePath: "",
   firmwareCheckPending: false,
   firmwareBusyKey: "",
+  firmwareLogTarget: null,
   refreshTimer: null,
+  monitorSnapshotPending: false,
+  monitorSnapshotQueued: false,
+  monitorSnapshotQueuedForce: false,
+  monitorSnapshotQueuedIncludeLinkConfig: false,
+  monitorSnapshotBatch: null,
   persistSavedState: "",
   persistStatusMode: "clean",
   persistRebootPending: false,
@@ -36,7 +42,12 @@ const state = {
   devices: [],
   lastOverview: null,
   lastMonitor: null,
+  lastMonitorSnapshots: [],
+  lastMonitorContext: null,
   lastLog: null,
+  remoteCapability: null,
+  runtimeLogs: [],
+  runtimeLogsDropped: 0,
   mcsOptionsByRole: null,
   powerRanges: {
     local: { minidbRange: null, jsonRange: null, minidbRead: false, minidbPending: false, jsonRead: false, jsonPending: false },
@@ -58,6 +69,7 @@ const state = {
     peer: { synced: false, values: null },
   },
   widebandForm: { synced: false, mode: "unknown" },
+  pairSlotDisplayCount: 8,
   dialogResolve: null,
   dialogReturnFocus: null,
   dialogToken: 0,
@@ -65,6 +77,7 @@ const state = {
     theme: "light",
     language: "zh",
     accent: "#3E7BE1",
+    pairSlotDisplayCount: 8,
   },
   appInfo: {
     version: "--",
@@ -81,6 +94,8 @@ const fallbackMcsOptionsByRole = {
 
 const fallbackPowerRange = Object.freeze({ min: 15, max: 27 });
 const persistPowerEditableRange = Object.freeze({ min: 5, max: 32 });
+const runtimeLogMaxEntries = 2000;
+const runtimeLogRenderLimit = 300;
 
 const els = {
   topbar: document.querySelector(".topbar"),
@@ -106,6 +121,10 @@ const els = {
   uptimeValue: document.querySelector("#uptimeValue"),
   firmwareValue: document.querySelector("#firmwareValue"),
   roleSegment: document.querySelector("#roleSegment"),
+  roleValue: document.querySelector("#roleValue"),
+  pairRefreshButton: document.querySelector("#pairRefreshButton"),
+  pairSlotCountControl: document.querySelector("#pairSlotCountControl"),
+  pairSlotCountSelect: document.querySelector("#pairSlotCountSelect"),
   pairTableBody: document.querySelector("#pairTableBody"),
   daemonStatus: document.querySelector("#daemonStatus"),
   daemonStatusText: document.querySelector("#daemonStatusText"),
@@ -113,6 +132,8 @@ const els = {
   appInfo: document.querySelector("#appInfo"),
   linkConfigStatus: document.querySelector("#linkConfigStatus"),
   monitorTableBody: document.querySelector("#monitorTableBody"),
+  monitorLinkTable: document.querySelector("#monitorLinkTable"),
+  monitorTableHead: document.querySelector("#monitorTableHead"),
   monitorRecordToggle: document.querySelector("#monitorRecordToggle"),
   monitorMarkButton: document.querySelector("#monitorMarkButton"),
   monitorExportButton: document.querySelector("#monitorExportButton"),
@@ -134,6 +155,7 @@ const els = {
   importConfigFile: document.querySelector("#importConfigFile"),
   exportConfigFile: document.querySelector("#exportConfigFile"),
   resetConfigFile: document.querySelector("#resetConfigFile"),
+  rebootConfigFile: document.querySelector("#rebootConfigFile"),
   configSearch: document.querySelector("#configSearch"),
   configSearchButton: document.querySelector("#configSearchButton"),
   configPrevButton: document.querySelector("#configPrevButton"),
@@ -152,6 +174,8 @@ const els = {
   accentColorInput: document.querySelector("#accentColorInput"),
   accentColorText: document.querySelector("#accentColorText"),
   settingsVersionValue: document.querySelector("#settingsVersionValue"),
+  runtimeLogList: document.querySelector("#runtimeLogList"),
+  saveRuntimeLogButton: document.querySelector("#saveRuntimeLogButton"),
 };
 
 const modulePages = {
@@ -221,6 +245,8 @@ const translations = {
     "info.roleAria": "设备角色",
     "info.pairTitle": "对频管理",
     "info.pairAria": "对频管理",
+    "info.slotCountLabel": "显示数量",
+    "info.slotCountAria": "显示 slot 数量",
     "info.peerDevice": "对端设备",
     "info.connectionStatus": "连接状态",
     "info.macAddress": "MAC 地址",
@@ -243,6 +269,7 @@ const translations = {
     "linkState.unknown": "未知",
     "pair.query": "查询",
     "pair.set": "设置",
+    "pair.refresh": "刷新",
     "pair.start": "对频",
     "pair.stop": "停止",
     "monitor.linkTitle": "链路信息",
@@ -273,6 +300,7 @@ const translations = {
     "monitor.frequencyAxis": "频点",
     "monitor.interferenceAxis": "信号干扰强度 dBm",
     "monitor.linkNotReady": "链路未就绪",
+    "monitor.refreshing": "正在刷新链路信息...",
     "monitor.recordActionsAria": "链路数据记录",
     "monitor.recordStart": "记录",
     "monitor.recordStop": "停止",
@@ -418,6 +446,7 @@ const translations = {
     "firmware.confirmKicker": "升级确认",
     "firmware.confirmStart": "开始升级",
     "firmware.remoteUnavailable": "对端设备未连接，不能对端升级",
+    "firmware.remoteCapabilityUnavailable": "本机默认配置未启用对端远程调用，不能对端升级",
     "empty.moduleNotReadyTitle": "未接入模块",
     "empty.moduleNotReadyText": "此模块暂未接入设备接口",
     "dialog.defaultKicker": "操作确认",
@@ -434,8 +463,27 @@ const translations = {
     "settings.saved": "软件设置已保存",
     "settings.saveFailed": "软件设置保存失败",
     "settings.readFailed": "软件设置读取失败",
+    "runtimeLog.panelAria": "运行日志",
+    "runtimeLog.listAria": "运行日志列表",
+    "runtimeLog.title": "运行日志",
+    "runtimeLog.description": "查看本次启动以来的全部运行消息。",
+    "runtimeLog.empty": "暂无运行日志",
+    "runtimeLog.save": "保存日志",
+    "runtimeLog.saved": "运行日志已保存",
+    "runtimeLog.noData": "没有可保存的运行日志",
+    "runtimeLog.omitted": "界面仅显示最近 %s 条，较早 %s 条未显示",
+    "runtimeLog.dropped": "较早 %s 条运行日志已自动丢弃",
+    "runtimeLog.exportedAt": "导出时间",
+    "runtimeLog.appVersion": "软件版本",
+    "runtimeLog.daemonAddress": "daemon 地址",
+    "runtimeLog.targetSystem": "系统",
+    "runtimeLog.targetLocal": "本机",
+    "runtimeLog.targetLocalSlot": "本机 slot%s",
+    "runtimeLog.targetPeer": "对端",
+    "runtimeLog.targetPeerSlot": "对端 slot%s",
     "empty.noDeviceData": "暂无设备数据",
     "empty.noSlotData": "暂无 slot 数据",
+    "empty.noConnectedSlot": "暂无已连接 slot",
     "device.notFound": "未发现设备",
     "device.waiting": "等待设备",
     "device.selectToOpen": "选择设备打开",
@@ -487,6 +535,8 @@ const translations = {
     "info.roleAria": "Device role",
     "info.pairTitle": "Pairing Management",
     "info.pairAria": "Pairing management",
+    "info.slotCountLabel": "Visible slots",
+    "info.slotCountAria": "Visible slot count",
     "info.peerDevice": "Peer Device",
     "info.connectionStatus": "Connection Status",
     "info.macAddress": "MAC Address",
@@ -509,6 +559,7 @@ const translations = {
     "linkState.unknown": "Unknown",
     "pair.query": "Query",
     "pair.set": "Set",
+    "pair.refresh": "Refresh",
     "pair.start": "Pair",
     "pair.stop": "Stop",
     "monitor.linkTitle": "Link Info",
@@ -539,6 +590,7 @@ const translations = {
     "monitor.frequencyAxis": "Frequency",
     "monitor.interferenceAxis": "Interference dBm",
     "monitor.linkNotReady": "Link not ready",
+    "monitor.refreshing": "Refreshing link info...",
     "monitor.recordActionsAria": "Link data recording",
     "monitor.recordStart": "Record",
     "monitor.recordStop": "Stop",
@@ -684,6 +736,7 @@ const translations = {
     "firmware.confirmKicker": "Upgrade confirmation",
     "firmware.confirmStart": "Start Upgrade",
     "firmware.remoteUnavailable": "The peer device is not connected, so peer upgrade is unavailable",
+    "firmware.remoteCapabilityUnavailable": "Peer remote calls are disabled in the local default config, so peer upgrade is unavailable",
     "empty.moduleNotReadyTitle": "Module Not Connected",
     "empty.moduleNotReadyText": "This module is not connected to device APIs yet.",
     "dialog.defaultKicker": "Confirm Action",
@@ -700,8 +753,27 @@ const translations = {
     "settings.saved": "Settings saved",
     "settings.saveFailed": "Failed to save settings",
     "settings.readFailed": "Failed to read settings",
+    "runtimeLog.panelAria": "Runtime log",
+    "runtimeLog.listAria": "Runtime log list",
+    "runtimeLog.title": "Runtime Log",
+    "runtimeLog.description": "Review all runtime messages from this launch.",
+    "runtimeLog.empty": "No runtime logs yet",
+    "runtimeLog.save": "Save Log",
+    "runtimeLog.saved": "Runtime log saved",
+    "runtimeLog.noData": "No runtime logs to save",
+    "runtimeLog.omitted": "Showing the latest %s entries; %s earlier entries are hidden",
+    "runtimeLog.dropped": "%s earlier runtime log entries were discarded automatically",
+    "runtimeLog.exportedAt": "Exported at",
+    "runtimeLog.appVersion": "App version",
+    "runtimeLog.daemonAddress": "daemon address",
+    "runtimeLog.targetSystem": "System",
+    "runtimeLog.targetLocal": "Local",
+    "runtimeLog.targetLocalSlot": "Local slot%s",
+    "runtimeLog.targetPeer": "Peer",
+    "runtimeLog.targetPeerSlot": "Peer slot%s",
     "empty.noDeviceData": "No device data",
     "empty.noSlotData": "No slot data",
+    "empty.noConnectedSlot": "No connected slot",
     "device.notFound": "No devices found",
     "device.waiting": "Waiting for device",
     "device.selectToOpen": "Select a device to open",
@@ -795,6 +867,10 @@ function modeDisplayText(data = {}) {
   return localizedKnownText(data.mode, "mode.unknown");
 }
 
+function roleDisplayText(data = {}) {
+  return String(data.role || "").trim().toUpperCase();
+}
+
 function linkStateDisplayText(slot = {}) {
   if (slot.paired) {
     return t("linkState.pairing");
@@ -883,19 +959,70 @@ function translateRuntimeStep(value) {
     "频宽模式": "bandwidth mode",
     "工作频宽": "bandwidth",
     "MCS 模式": "MCS mode",
+    "读取功率用户": "power user read",
+    "发射功率": "transmit power",
     "读取工作模式": "work mode read",
     "帧结构切换": "frame structure switch",
+    "读取设备角色": "device role read",
+    "读取目标设备角色": "target device role read",
+    "刷新设备概览": "device overview refresh",
+    "读取设备状态": "device status read",
+    "读取配置文件": "config file read",
+    "写入配置文件": "config file write",
+    "恢复出厂配置": "factory config restore",
+    "配置文件恢复出厂设置": "factory config restore",
+    "设备重启请求": "device reboot request",
+    "重启请求": "reboot request",
+    "已停止自动重启": "automatic reboot stopped",
+    "订阅链路状态事件": "link-state event subscription",
     "角色配置": "role config",
     "对端 MAC": "peer MAC",
     "频段配置": "band config",
     "功率配置": "power config",
     "频点列表": "frequency list",
+    "Mavlink 串口波特率": "Mavlink UART baudrate",
+    "读取角色配置": "role config read",
+    "读取对端 MAC": "peer MAC read",
+    "读取频段配置": "band config read",
+    "读取功率配置": "power config read",
+    "读取频点列表": "frequency list read",
+    "读取 Mavlink 串口波特率": "Mavlink UART baudrate read",
+    "读取已有功率配置": "existing power config read",
+    "读取已有 Mavlink 串口配置": "existing Mavlink UART config read",
   };
   return stepMap[text] || text;
 }
 
-function translateRuntimeMessage(message) {
+function translateInlineTarget(value) {
+  const text = String(value || "").trim();
+  if (text === "本机") {
+    return "local";
+  }
+  const peerMatch = text.match(/^对端\s*slot\s*(\d+)$/i);
+  return peerMatch ? `peer slot${peerMatch[1]}` : text;
+}
+
+function translateCommandFailure(action, command, code, suffix = "") {
+  const translatedAction = translateRuntimeStep(String(action || "").trim());
+  const translatedSuffix = String(suffix || "").trim();
+  const suffixText = translatedSuffix ? `, ${translateRuntimeStep(translatedSuffix)}` : "";
+  return `${translatedAction} failed, command ${command} ${translateErrorCode(code)}${suffixText}`;
+}
+
+function translateErrorCode(code) {
+  return String(code).trim() === "-420" ? "SDK ioctl timeout" : `error code ${code}`;
+}
+
+function normalizeRuntimeMessage(message) {
   const raw = String(message || "").trim();
+  const withoutPairPrefix = raw.replace(/^\[对频\]\s*/, "");
+  return /^slot\s*\d+\s+(MAC|对频)/i.test(withoutPairPrefix)
+    ? withoutPairPrefix.replace(/^slot\s*\d+\s+/, "")
+    : withoutPairPrefix;
+}
+
+function translateRuntimeMessage(message) {
+  const raw = normalizeRuntimeMessage(message);
   if (!raw || state.preferences.language !== "en") {
     return raw;
   }
@@ -921,6 +1048,10 @@ function translateRuntimeMessage(message) {
     "已取消导出": "Export canceled",
     "写入配置文件失败": "Failed to write config file",
     "配置文件已导出": "Config file exported",
+    "日志内容为空": "Log content is empty",
+    "运行日志已保存": "Runtime log saved",
+    "写入运行日志失败": "Failed to write runtime log",
+    "已取消保存": "Save canceled",
     "已取消选择": "Selection canceled",
     "已选择固件文件": "Firmware file selected",
     "固件升级正在进行": "Firmware upgrade is already running",
@@ -986,14 +1117,29 @@ function translateRuntimeMessage(message) {
     "未找到 l4_daemon.exe": "l4_daemon.exe not found",
     "本机 daemon 已就绪": "Local daemon is ready",
     "daemon 正在初始化": "daemon is initializing",
+    "SDK ioctl 超时": "SDK ioctl timed out",
   };
   if (exact[raw]) {
     return exact[raw];
   }
 
   const regexRules = [
+    [/^\[SDK\] 反订阅事件 (.+) 失败，命令 ([A-Z0-9_]+) 错误码 (.+)$/, (_, event, command, code) => `[SDK] Failed to unsubscribe event ${event}, command ${command} error code ${code}`],
+    [/^MAC 读取失败，命令 ([A-Z0-9_]+) 错误码 (.+)$/, (_, command, code) => `MAC read failed, command ${command} error code ${code}`],
+    [/^MAC 设置失败，命令 ([A-Z0-9_]+) 错误码 (.+)$/, (_, command, code) => `MAC set failed, command ${command} error code ${code}`],
+    [/^对频命令发送失败，命令 ([A-Z0-9_]+) 错误码 (.+)$/, (_, command, code) => `pairing command failed, command ${command} error code ${code}`],
+    [/^对频停止命令发送失败，命令 ([A-Z0-9_]+) 错误码 (.+)$/, (_, command, code) => `pairing stop command failed, command ${command} error code ${code}`],
+    [/^(本机|对端\s*slot\s*\d+)配置文件恢复出厂设置失败，命令 ([A-Z0-9_]+) 错误码 (.+)，已停止自动重启$/, (_, target, command, code) => `${translateInlineTarget(target)} factory config restore failed, command ${command} error code ${code}, automatic reboot stopped`],
+    [/^(本机|对端\s*slot\s*\d+)重启请求失败，命令 ([A-Z0-9_]+) 错误码 (.+)$/, (_, target, command, code) => `${translateInlineTarget(target)} reboot request failed, command ${command} error code ${code}`],
+    [/^\[SDK\] (.+)失败，命令 ([A-Z0-9_]+) 错误码 (.+)$/, (_, action, command, code) => `[SDK] ${translateCommandFailure(action, command, code)}`],
+    [/^(.+)失败，命令 ([A-Z0-9_]+) 错误码 (.+)，(.+)$/, (_, action, command, code, suffix) => translateCommandFailure(action, command, code, suffix)],
+    [/^(.+) 下发失败，命令 ([A-Z0-9_]+) 错误码 (.+)$/, (_, step, command, code) => `Failed to apply ${translateRuntimeStep(step)}, command ${command} error code ${code}`],
+    [/^(.+) 写入失败，命令 ([A-Z0-9_]+) 错误码 (.+)$/, (_, step, command, code) => `Failed to write ${translateRuntimeStep(step)}, command ${command} error code ${code}`],
+    [/^(.+)失败，命令 ([A-Z0-9_]+) 错误码 (.+)$/, (_, action, command, code) => translateCommandFailure(action, command, code)],
     [/^\[SDK\] 刷新设备概览失败，sys=(.+) status=(.+)$/, (_, sys, status) => `[SDK] Failed to refresh device overview, sys=${sys} status=${status}`],
-    [/^\[SDK\] 读取设备状态失败，错误码 (.+)$/, (_, code) => `[SDK] Failed to read device status, error code ${code}`],
+    [/^\[SDK\] 读取设备状态失败，错误码 (.+)$/, (_, code) => `[SDK] Failed to read device status, ${translateErrorCode(code)}`],
+    [/^\[SDK\] 本机配置解析：远程调用启用：(.+)；AP MCS列表 (.+)；DEV MCS列表 (.+)；功率范围 (.+)$/, (_, slots, apMcs, devMcs, powerRange) => `[SDK] Local config parsed: remote calls enabled: ${slots.replace(/、/g, ", ")}; AP MCS list ${apMcs}; DEV MCS list ${devMcs}; power range ${powerRange}`],
+    [/^\[SDK\] 本机配置解析：远程调用禁用；AP MCS列表 (.+)；DEV MCS列表 (.+)；功率范围 (.+)$/, (_, apMcs, devMcs, powerRange) => `[SDK] Local config parsed: remote calls disabled; AP MCS list ${apMcs}; DEV MCS list ${devMcs}; power range ${powerRange}`],
     [/^\[daemon\] 进程退出，代码 (.+)$/, (_, code) => `[daemon] Process exited, code ${code}`],
     [/^\[daemon\] 已启动 (.+)$/, (_, args) => `[daemon] Started ${args}`],
     [/^启动 daemon 失败：(.+)$/, (_, reason) => `Failed to start daemon: ${reason}`],
@@ -1016,15 +1162,26 @@ function translateRuntimeMessage(message) {
     [/^已打开设备 (.+)$/, (_, name) => `Opened device ${translateDeviceName(name)}`],
     [/^无法读取配置文件：(.+)$/, (_, reason) => `Failed to read config file: ${reason}`],
     [/^无法写入配置文件：(.+)$/, (_, reason) => `Failed to write config file: ${reason}`],
+    [/^无法写入运行日志：(.+)$/, (_, reason) => `Failed to write runtime log: ${reason}`],
     [/^JSON 格式错误：(.+)$/, (_, reason) => `JSON parse error: ${reason}`],
     [/^(.+) 下发失败，错误码 (.+)$/, (_, step, code) => `Failed to apply ${translateRuntimeStep(step)}, error code ${code}`],
     [/^(.+) 写入失败，错误码 (.+)$/, (_, step, code) => `Failed to write ${translateRuntimeStep(step)}, error code ${code}`],
     [/^(.+) 已完成$/, (_, operation) => `${operation} completed`],
     [/^(.+) 失败，错误码 (.+)$/, (_, operation, code) => `${operation} failed, error code ${code}`],
     [/^读取(.+)失败，错误码 (.+)$/, (_, target, code) => `Failed to read ${translateRuntimeStep(target)}, error code ${code}`],
-    [/^\[对频\] 对频成功$/, () => "[Pairing] Pairing succeeded"],
-    [/^\[对频\] 对频超时$/, () => "[Pairing] Pairing timed out"],
-    [/^\[对频\] 对频结束，错误码 (.+)$/, (_, code) => `[Pairing] Pairing ended, error code ${code}`],
+    [/^MAC 已读取$/, () => "MAC read"],
+    [/^MAC 已设置$/, () => "MAC set"],
+    [/^MAC 读取失败，错误码 (.+)$/, (_, code) => `MAC read failed, error code ${code}`],
+    [/^MAC 设置失败，错误码 (.+)$/, (_, code) => `MAC set failed, error code ${code}`],
+    [/^MAC 格式应为 11:22:33:44 或 11223344$/, () => "MAC format must be 11:22:33:44 or 11223344"],
+    [/^对频命令已发送$/, () => "Pairing command sent"],
+    [/^对频命令发送失败，错误码 (.+)$/, (_, code) => `Pairing command failed, error code ${code}`],
+    [/^对频停止命令已发送$/, () => "Pairing stop command sent"],
+    [/^对频停止命令发送失败，错误码 (.+)$/, (_, code) => `Pairing stop command failed, error code ${code}`],
+    [/^对频成功$/, () => "Pairing succeeded"],
+    [/^对频超时$/, () => "Pairing timed out"],
+    [/^对频结束，命令 ([A-Z0-9_]+) 错误码 (.+)$/, (_, command, code) => `Pairing ended, command ${command} error code ${code}`],
+    [/^对频结束，错误码 (.+)$/, (_, code) => `Pairing ended, error code ${code}`],
   ];
 
   for (const [pattern, replacer] of regexRules) {
@@ -1042,9 +1199,145 @@ function renderOperationLog() {
     return;
   }
   const timeText = state.lastLog.time.toLocaleTimeString("zh-CN", { hour12: false });
-  const lineText = `${timeText}  ${translateRuntimeMessage(state.lastLog.message)}`;
+  const lineText = `${timeText}  [${runtimeLogTargetText(state.lastLog)}] ${translateRuntimeMessage(state.lastLog.message)}`;
   setPlainText(els.operationLog, lineText);
   els.operationLog.title = lineText;
+}
+
+function numberOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function slotNumberFromText(value) {
+  const match = String(value || "").match(/slot\s*(\d+)/i);
+  return match ? Number(match[1]) : null;
+}
+
+function normalizeLogTarget(meta = {}) {
+  const targetText = String(meta.target || meta.targetLabel || "").trim();
+  let remoteSlot = numberOrNull(meta.targetRemoteSlot ?? meta.remoteSlot);
+  let targetSlot = numberOrNull(meta.targetSlot ?? meta.localSlot);
+  let targetScope = String(meta.targetScope || meta.scope || "").trim().toLowerCase();
+
+  if (targetScope === "remote") {
+    targetScope = "peer";
+  } else if (!targetScope && remoteSlot !== null) {
+    targetScope = remoteSlot >= 0 ? "peer" : "local";
+  } else if (!targetScope && targetSlot !== null) {
+    targetScope = "local";
+  } else if (!targetScope && targetText) {
+    if (/^(local|本机)/i.test(targetText)) {
+      targetScope = "local";
+    } else if (/^(peer|remote|对端)/i.test(targetText)) {
+      targetScope = "peer";
+    }
+  }
+
+  if (!["local", "peer"].includes(targetScope)) {
+    targetScope = "system";
+  }
+
+  if (targetScope === "peer" && remoteSlot === null) {
+    remoteSlot = slotNumberFromText(targetText);
+  }
+  if (targetScope === "local" && targetSlot === null) {
+    targetSlot = slotNumberFromText(targetText);
+  }
+
+  if (targetScope === "local") {
+    remoteSlot = -1;
+  } else if (targetScope !== "peer") {
+    remoteSlot = null;
+  }
+  if (targetScope !== "local") {
+    targetSlot = null;
+  }
+
+  return { targetScope, remoteSlot, targetSlot, targetLabel: targetText };
+}
+
+function runtimeLogTargetText(entry = {}) {
+  const target = normalizeLogTarget(entry);
+  if (target.targetScope === "local") {
+    return Number.isFinite(target.targetSlot) && target.targetSlot >= 0
+      ? formatTemplate("runtimeLog.targetLocalSlot", target.targetSlot)
+      : t("runtimeLog.targetLocal");
+  }
+  if (target.targetScope === "peer") {
+    return Number.isFinite(target.remoteSlot) && target.remoteSlot >= 0
+      ? formatTemplate("runtimeLog.targetPeerSlot", target.remoteSlot)
+      : t("runtimeLog.targetPeer");
+  }
+  return t("runtimeLog.targetSystem");
+}
+
+function runtimeLogLineText(entry) {
+  const time = entry?.time instanceof Date ? entry.time : new Date(entry?.time || Date.now());
+  return `[${monitorCsvTimestamp(time)}] [${runtimeLogTargetText(entry)}] ${translateRuntimeMessage(entry?.message || "")}`;
+}
+
+function trimRuntimeLogs() {
+  const overflow = state.runtimeLogs.length - runtimeLogMaxEntries;
+  if (overflow <= 0) {
+    return;
+  }
+  state.runtimeLogs.splice(0, overflow);
+  state.runtimeLogsDropped += overflow;
+}
+
+function renderRuntimeLog(options = {}) {
+  if (!els.runtimeLogList) {
+    return;
+  }
+
+  const hasLogs = state.runtimeLogs.length > 0;
+  if (els.saveRuntimeLogButton) {
+    els.saveRuntimeLogButton.disabled = !hasLogs;
+  }
+
+  if (!(options.forceScroll || options.forceRender || state.currentCode === "L4.SETTINGS")) {
+    return;
+  }
+
+  const distanceToBottom = els.runtimeLogList.scrollHeight
+    - els.runtimeLogList.scrollTop
+    - els.runtimeLogList.clientHeight;
+  const shouldFollowLatest = options.forceScroll || distanceToBottom < 32;
+
+  if (hasLogs) {
+    const renderedLogs = state.runtimeLogs.slice(-runtimeLogRenderLimit);
+    const hiddenCount = state.runtimeLogs.length - renderedLogs.length + state.runtimeLogsDropped;
+    const summary = hiddenCount > 0
+      ? `
+        <div class="runtime-log-entry" data-target="system">
+          <span class="runtime-log-target">[${escapeHtml(t("runtimeLog.targetSystem"))}]</span>
+          <span class="runtime-log-time">--</span>
+          <span class="runtime-log-message">${escapeHtml(formatTemplate("runtimeLog.omitted", renderedLogs.length, hiddenCount))}</span>
+        </div>
+      `
+      : "";
+    delete els.runtimeLogList.dataset.i18n;
+    els.runtimeLogList.innerHTML = summary + renderedLogs.map((entry) => {
+      const time = entry?.time instanceof Date ? entry.time : new Date(entry?.time || Date.now());
+      return `
+        <div class="runtime-log-entry" data-target="${escapeHtml(normalizeLogTarget(entry).targetScope)}">
+          <span class="runtime-log-target">[${escapeHtml(runtimeLogTargetText(entry))}]</span>
+          <span class="runtime-log-time">${escapeHtml(monitorCsvTimestamp(time))}</span>
+          <span class="runtime-log-message">${escapeHtml(translateRuntimeMessage(entry?.message || ""))}</span>
+        </div>
+      `;
+    }).join("");
+  } else {
+    setLocalizedText(els.runtimeLogList, "runtimeLog.empty");
+  }
+
+  if (shouldFollowLatest) {
+    window.requestAnimationFrame(() => {
+      els.runtimeLogList.scrollTop = els.runtimeLogList.scrollHeight;
+      scheduleSlimScrollbarUpdate();
+    });
+  }
 }
 
 function refreshDeviceOptionTexts() {
@@ -1107,15 +1400,83 @@ function currentUpgradeFirmwareVersion() {
     : firmwareVersionText(state.lastOverview?.firmwareVersion);
 }
 
+function inferBridgeLogMeta(message) {
+  const text = String(message || "").trim();
+  const slot = slotNumberFromText(text);
+  if (/^本机/.test(text)) {
+    return slot !== null ? localSlotLogTargetMeta(slot) : logTargetMetaForScope("local");
+  }
+  if (/^对端/.test(text)) {
+    return peerSlotLogTargetMeta(slot !== null ? slot : 0);
+  }
+  if (/^\[对频\]/.test(text)) {
+    return localSlotLogTargetMeta(slot !== null ? slot : 0);
+  }
+  if (/^slot\s*\d+\s+(MAC|对频)/i.test(text)) {
+    return localSlotLogTargetMeta(slot !== null ? slot : 0);
+  }
+  if (/^\[(OTA|ThingsBoard)\]/.test(text)) {
+    return firmwareLogTargetMeta();
+  }
+  if (/^\[SDK\]/.test(text)) {
+    return logTargetMetaForScope("local");
+  }
+  return systemLogTargetMeta();
+}
+
 function setFirmwareProgress(progress) {
   const value = Math.max(0, Math.min(100, Number(progress) || 0));
   els.firmwareProgress.style.width = `${value}%`;
   els.firmwareProgressValue.textContent = `${Math.round(value)}%`;
 }
 
+function updateRemoteCapability(data = {}) {
+  if (data.remoteCapability && typeof data.remoteCapability === "object") {
+    state.remoteCapability = data.remoteCapability;
+  }
+}
+
+function resetRemoteCapability() {
+  state.remoteCapability = null;
+}
+
+function overviewSlot(index = 0) {
+  const slots = Array.isArray(state.lastOverview?.slots) ? state.lastOverview.slots : [];
+  return slots.find((slot) => Number(slot?.slot) === index) || null;
+}
+
+function remoteCapabilityAllowsSlot(index = 0) {
+  const capabilitySlots = Array.isArray(state.remoteCapability?.slots) ? state.remoteCapability.slots : [];
+  const capabilitySlot = capabilitySlots.find((item) => Number(item?.slot) === index);
+  if (typeof capabilitySlot?.enabled === "boolean") {
+    return capabilitySlot.enabled;
+  }
+
+  const slot = overviewSlot(index);
+  if (typeof slot?.remoteCallable === "boolean") {
+    return slot.remoteCallable;
+  }
+
+  return false;
+}
+
+function remoteSlotConnected(index = 0) {
+  const slot = overviewSlot(index);
+  return Number(slot?.stateValue) === 2 || String(slot?.state || "").toLowerCase() === "connected";
+}
+
+function remoteUpgradeUnavailableMessage() {
+  if (!remoteSlotConnected(0)) {
+    return t("firmware.remoteUnavailable");
+  }
+  if (state.deviceConnected && !remoteCapabilityAllowsSlot(0)) {
+    return t("firmware.remoteCapabilityUnavailable");
+  }
+  return t("firmware.remoteUnavailable");
+}
+
 function hasRemoteUpgradeTarget() {
-  const slot0 = peerUpgradeSlot();
-  return Number(slot0?.stateValue) === 2 || String(slot0?.state || "").toLowerCase() === "connected";
+  return remoteSlotConnected(0) && remoteCapabilityAllowsSlot(0);
 }
 
 function setUpgradeTarget(target) {
@@ -1131,6 +1492,7 @@ function syncFirmwareControls() {
   const remoteButton = document.querySelector('[data-upgrade-target="remote"]');
   if (remoteButton) {
     remoteButton.disabled = !canRemoteUpgrade;
+    remoteButton.title = canRemoteUpgrade ? "" : remoteUpgradeUnavailableMessage();
   }
 
   if (!canRemoteUpgrade && activeSegmentValue("[data-upgrade-target-group]", "local") === "remote") {
@@ -1269,6 +1631,7 @@ function setPersistTargetScope(scope = "local", { restore = false } = {}) {
 
 function syncTargetDeviceControls() {
   const canUsePeerTarget = state.deviceConnected && hasRemoteUpgradeTarget();
+  const unavailableTitle = canUsePeerTarget ? "" : remoteUpgradeUnavailableMessage();
   const linkPeerButton = document.querySelector('#linkConfigPage [data-target-scope="peer"]');
   const persistPeerButton = document.querySelector('#persistPage [data-persist-target-scope="peer"]');
   const profilePeerButton = document.querySelector('#profilePage [data-profile-target-scope="peer"]');
@@ -1278,6 +1641,7 @@ function syncTargetDeviceControls() {
     }
     button.disabled = !canUsePeerTarget;
     button.setAttribute("aria-disabled", canUsePeerTarget ? "false" : "true");
+    button.title = unavailableTitle;
   });
   if (!canUsePeerTarget) {
     setLinkEndpointScope("local");
@@ -1315,6 +1679,64 @@ function profileTargetLabel(scope = activeProfileTargetScope()) {
 
 function profileRequestOptions(scope = activeProfileTargetScope(), extra = {}) {
   return { ...extra, slot: 0, targetScope: normalizePersistTargetScope(scope) };
+}
+
+function logTargetMetaForScope(scope = "system", extra = {}) {
+  const rawScope = String(scope ?? "").trim().toLowerCase();
+  if (!rawScope || rawScope === "system") {
+    return {
+      targetScope: "system",
+      ...extra,
+    };
+  }
+  const targetScope = normalizePersistTargetScope(rawScope);
+  return {
+    targetScope,
+    remoteSlot: targetScope === "peer" ? 0 : -1,
+    ...extra,
+  };
+}
+
+function systemLogTargetMeta() {
+  return { targetScope: "system" };
+}
+
+function peerSlotLogTargetMeta(slot = 0) {
+  const remoteSlot = numberOrNull(slot);
+  return {
+    targetScope: "peer",
+    remoteSlot: remoteSlot !== null && remoteSlot >= 0 ? remoteSlot : 0,
+  };
+}
+
+function localSlotLogTargetMeta(slot = 0) {
+  const targetSlot = numberOrNull(slot);
+  return {
+    targetScope: "local",
+    remoteSlot: -1,
+    targetSlot: targetSlot !== null && targetSlot >= 0 ? targetSlot : 0,
+  };
+}
+
+function logTargetMetaFromData(data = {}, fallback = {}) {
+  return normalizeLogTarget({
+    ...fallback,
+    targetScope: data.targetScope ?? fallback.targetScope,
+    remoteSlot: data.targetRemoteSlot ?? data.remoteSlot ?? fallback.remoteSlot,
+    targetSlot: data.targetSlot ?? data.localSlot ?? fallback.targetSlot ?? fallback.localSlot,
+    target: data.target ?? fallback.target,
+  });
+}
+
+function firmwareLogTargetMetaFromRemoteSlot(remoteSlot = currentUpgradeRemoteSlot()) {
+  const slot = numberOrNull(remoteSlot);
+  return slot !== null && slot >= 0
+    ? peerSlotLogTargetMeta(slot)
+    : logTargetMetaForScope("local");
+}
+
+function firmwareLogTargetMeta() {
+  return state.firmwareLogTarget || firmwareLogTargetMetaFromRemoteSlot();
 }
 
 function saveActiveProfileForm() {
@@ -1557,6 +1979,16 @@ function normalizeDeviceRole(role) {
   return text === "AP" || text === "DEV" ? text : "";
 }
 
+function setRoleDisplay(role) {
+  const roleText = normalizeDeviceRole(role);
+  if (els.roleSegment) {
+    els.roleSegment.dataset.role = roleText;
+  }
+  if (els.roleValue) {
+    els.roleValue.textContent = roleText || "--";
+  }
+}
+
 function objectValueIgnoreCase(object, key) {
   if (!object || typeof object !== "object" || Array.isArray(object)) {
     return undefined;
@@ -1586,8 +2018,7 @@ function localDeviceRole() {
   if (overviewRole) {
     return overviewRole;
   }
-  const active = els.roleSegment?.querySelector(".segment-button.active");
-  return normalizeDeviceRole(active?.dataset.role);
+  return normalizeDeviceRole(els.roleSegment?.dataset.role || els.roleValue?.textContent);
 }
 
 function configMcsOptionsForRole(config, role) {
@@ -1822,7 +2253,7 @@ function requestDefaultConfigForLinkLimits(endpointScope = activeLinkEndpointSco
   bridgeCall("readConfigFile", profileRequestOptions(scope, { mode: 0 })).then((response) => {
     if (!response.ok) {
       scoped.jsonPending = false;
-      appendLog(response.message);
+      appendLog(response.message, logTargetMetaForScope(scope));
       if (scope === activeLinkEndpointScope()) {
         refreshLinkLimitControls(scope);
       }
@@ -1865,7 +2296,7 @@ function validatePersistPowerInputs(showMessage = false) {
   if (powerMode === "fixed") {
     if (!powerInPersistEditableRange(document.querySelector("#fixedPowerInput")?.value)) {
       if (showMessage) {
-        appendLog(`固定功率应在 ${powerRangeText(persistPowerEditableRange)} 之间`);
+        appendLog(`固定功率应在 ${powerRangeText(persistPowerEditableRange)} 之间`, logTargetMetaForScope(activePersistTargetScope()));
       }
       return false;
     }
@@ -1874,7 +2305,7 @@ function validatePersistPowerInputs(showMessage = false) {
     const maxPower = Number(document.querySelector("#maxPowerInput")?.value);
     if (!powerInPersistEditableRange(minPower) || !powerInPersistEditableRange(maxPower) || minPower > maxPower) {
       if (showMessage) {
-        appendLog(`功率范围应在 ${powerRangeText(persistPowerEditableRange)}，且最小值不大于最大值`);
+        appendLog(`功率范围应在 ${powerRangeText(persistPowerEditableRange)}，且最小值不大于最大值`, logTargetMetaForScope(activePersistTargetScope()));
       }
       return false;
     }
@@ -2300,6 +2731,7 @@ function normalizePreferences(value) {
     theme: preferences.theme === "dark" ? "dark" : "light",
     language: preferences.language === "en" ? "en" : "zh",
     accent: normalizeAccentColor(preferences.accent),
+    pairSlotDisplayCount: clampPairSlotDisplayCount(preferences.pairSlotDisplayCount),
   };
 }
 
@@ -2414,7 +2846,9 @@ function applyLanguage(language) {
   } else if (state.lastOverview) {
     renderOverview(state.lastOverview);
   }
-  if (state.lastMonitor) {
+  if (state.lastMonitorSnapshots.length > 0) {
+    renderMonitorSnapshots(state.lastMonitorSnapshots, { record: false });
+  } else if (state.lastMonitor) {
     renderMonitor(state.lastMonitor, { record: false });
   }
   setDaemonStatus(state.daemonConnected, state.statusMode === "warning"
@@ -2422,6 +2856,7 @@ function applyLanguage(language) {
     : t("status.daemonDisconnected"));
   renderSettingsState();
   renderOperationLog();
+  renderRuntimeLog();
   refreshDeviceOptionTexts();
   syncTargetDeviceControls();
   updateUpgradeTargetHint();
@@ -2435,6 +2870,7 @@ function applyLanguage(language) {
 
 function initializePreferences() {
   state.preferences = loadInitialPreferences();
+  state.pairSlotDisplayCount = state.preferences.pairSlotDisplayCount;
   applyTheme(state.preferences.theme);
   applyLanguage(state.preferences.language);
   savePreferences();
@@ -2446,6 +2882,7 @@ function preferencesPayload() {
     theme: state.preferences.theme,
     language: state.preferences.language,
     accent: state.preferences.accent,
+    pairSlotDisplayCount: state.preferences.pairSlotDisplayCount,
   };
 }
 
@@ -2456,7 +2893,7 @@ async function persistPreferencesToBridge(reportFailure = true) {
 
   const response = await bridgeCall("setUserPreferences", preferencesPayload());
   if (!response.ok && reportFailure) {
-    appendLog(response.message || t("settings.saveFailed"));
+    appendLog(response.message || t("settings.saveFailed"), systemLogTargetMeta());
   }
 }
 
@@ -2467,7 +2904,7 @@ async function loadPreferencesFromBridge() {
 
   const response = await bridgeCall("getUserPreferences");
   if (!response.ok) {
-    appendLog(response.message || t("settings.readFailed"));
+    appendLog(response.message || t("settings.readFailed"), systemLogTargetMeta());
     return;
   }
 
@@ -2476,13 +2913,17 @@ async function loadPreferencesFromBridge() {
     theme: data.hasTheme ? data.theme : state.preferences.theme,
     language: data.hasLanguage ? data.language : state.preferences.language,
     accent: data.hasAccent ? data.accent : state.preferences.accent,
+    pairSlotDisplayCount: data.hasPairSlotDisplayCount
+      ? data.pairSlotDisplayCount
+      : state.preferences.pairSlotDisplayCount,
   };
   state.preferences = normalizePreferences(nextPreferences);
+  state.pairSlotDisplayCount = state.preferences.pairSlotDisplayCount;
   applyTheme(state.preferences.theme);
   applyLanguage(state.preferences.language);
   savePreferences();
 
-  if (!data.hasTheme || !data.hasLanguage || !data.hasAccent) {
+  if (!data.hasTheme || !data.hasLanguage || !data.hasAccent || !data.hasPairSlotDisplayCount) {
     await persistPreferencesToBridge(false);
   }
 }
@@ -2500,7 +2941,7 @@ function updateAccentPreference(value, options = {}) {
   savePreferences();
   persistPreferencesToBridge();
   if (options.report) {
-    appendLog(t("settings.saved"));
+    appendLog(t("settings.saved"), systemLogTargetMeta());
   }
 }
 
@@ -2519,7 +2960,7 @@ function applySettingChange(button) {
   }
   savePreferences();
   persistPreferencesToBridge();
-  appendLog(t("settings.saved"));
+  appendLog(t("settings.saved"), systemLogTargetMeta());
 }
 
 function hasScrollableOverflow(target) {
@@ -3067,16 +3508,25 @@ function responseData(response) {
   return response || {};
 }
 
-function appendLog(message) {
+function appendLog(message, meta = {}) {
   const text = String(message || "").trim();
   if (!text) {
     return;
   }
-  state.lastLog = {
+  const target = normalizeLogTarget(meta);
+  const entry = {
     time: new Date(),
     message: text,
+    targetScope: target.targetScope,
+    remoteSlot: target.remoteSlot,
+    targetSlot: target.targetSlot,
+    targetLabel: target.targetLabel,
   };
+  state.lastLog = entry;
+  state.runtimeLogs.push(entry);
+  trimRuntimeLogs();
   renderOperationLog();
+  renderRuntimeLog();
 }
 
 function dialogFocusableElements() {
@@ -3235,9 +3685,8 @@ function setEmptySummary() {
   els.firmwareValue.textContent = "--";
   els.firmwareValue.title = "";
   updateUpgradeTargetHint();
-  els.roleSegment.querySelectorAll(".segment-button").forEach((button) => {
-    button.classList.remove("active");
-  });
+  setRoleDisplay("");
+  syncPairSlotCountControl();
   els.pairTableBody.innerHTML = `<tr><td colspan="5" class="empty-cell">${t("empty.noDeviceData")}</td></tr>`;
   clearMonitorView(t("empty.noDeviceData"));
 }
@@ -3533,12 +3982,203 @@ function activeSegmentText(selector, fallback = "") {
   return document.querySelector(`${selector} .segment-button.active`)?.textContent.trim() || fallback;
 }
 
-function requestCurrentSnapshot(force = false) {
-  if (!state.deviceConnected) {
+function monitorSnapshotContext() {
+  return state.lastMonitorContext || state.lastOverview || {};
+}
+
+function slotIndexValue(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 0 && number < 8 ? number : null;
+}
+
+function slotLinkConnected(slot = {}) {
+  return Number(slot.stateValue) === 2 || String(slot.state || "").toLowerCase() === "connected";
+}
+
+function connectedMonitorSlotIndexes(data = monitorSnapshotContext()) {
+  const slots = Array.isArray(data?.slots) ? data.slots : [];
+  return slots
+    .filter(slotLinkConnected)
+    .map((slot) => slotIndexValue(slot?.slot))
+    .filter((slot) => slot !== null)
+    .sort((left, right) => left - right);
+}
+
+function isApOneToManyMonitorContext(data = monitorSnapshotContext()) {
+  return roleDisplayText(data) === "AP" && isOneToManyMode(data);
+}
+
+function monitorSnapshotRequestSlots(includeLinkConfig = false) {
+  if (includeLinkConfig) {
+    return [0];
+  }
+  if (isApOneToManyMonitorContext(state.lastOverview)) {
+    const overviewConnectedSlots = connectedMonitorSlotIndexes(state.lastOverview);
+    if (overviewConnectedSlots.length) {
+      return overviewConnectedSlots;
+    }
+  }
+  const context = monitorSnapshotContext();
+  if (isApOneToManyMonitorContext(context)) {
+    const connectedSlots = connectedMonitorSlotIndexes(context);
+    return connectedSlots.length ? connectedSlots : [0];
+  }
+  return [0];
+}
+
+function monitorSnapshotCacheCoversSlots(snapshots, slots) {
+  const requiredSlots = (Array.isArray(slots) ? slots : [])
+    .map(slotIndexValue)
+    .filter((slot) => slot !== null);
+  if (requiredSlots.length === 0) {
+    return false;
+  }
+  const availableSlots = new Set(
+    sortedMonitorSnapshots(snapshots)
+      .filter(monitorSnapshotConnected)
+      .map(monitorSnapshotSlotIndex)
+  );
+  return requiredSlots.every((slot) => availableSlots.has(slot));
+}
+
+function prepareMonitorViewForRefresh() {
+  const expectedSlots = monitorSnapshotRequestSlots(false);
+  if (expectedSlots.length <= 1 || monitorSnapshotCacheCoversSlots(state.lastMonitorSnapshots, expectedSlots)) {
     return;
   }
-  if (force || state.monitorLog.recording || state.currentCode === "L4.MONITOR" || state.currentCode === "L4.LINK") {
-    bridgeCall("getMonitorSnapshot", { slot: 0, user: 0 });
+  clearMonitorView(t("monitor.refreshing"));
+}
+
+function requestCurrentSnapshot(force = false, options = {}) {
+  if (!state.deviceConnected) {
+    resetCurrentSnapshotRequest();
+    return;
+  }
+  if (!(force || state.monitorLog.recording || state.currentCode === "L4.MONITOR" || state.currentCode === "L4.LINK")) {
+    return;
+  }
+  const includeLinkConfig = Boolean(options.includeLinkConfig ?? state.currentCode === "L4.LINK");
+  if (state.monitorSnapshotPending) {
+    state.monitorSnapshotQueued = true;
+    state.monitorSnapshotQueuedForce = state.monitorSnapshotQueuedForce || force;
+    state.monitorSnapshotQueuedIncludeLinkConfig =
+      state.monitorSnapshotQueuedIncludeLinkConfig || includeLinkConfig;
+    return;
+  }
+
+  state.monitorSnapshotPending = true;
+  const renderDom = options.renderDom ?? !includeLinkConfig;
+  const updateDisplayCache = options.updateDisplayCache ?? !includeLinkConfig;
+  state.monitorSnapshotBatch = {
+    includeLinkConfig,
+    renderDom,
+    updateDisplayCache,
+    record: options.record,
+    queue: [],
+    requestedSlots: new Set(),
+    completedSlots: new Set(),
+    activeSlot: null,
+    snapshots: [],
+    expandedFromStatus: false,
+  };
+  enqueueMonitorSnapshotSlots(monitorSnapshotRequestSlots(includeLinkConfig));
+  requestNextMonitorSnapshotSlot();
+}
+
+function enqueueMonitorSnapshotSlots(slots) {
+  const batch = state.monitorSnapshotBatch;
+  if (!batch) {
+    return;
+  }
+  slots.forEach((value) => {
+    const slot = slotIndexValue(value);
+    if (slot === null || batch.requestedSlots.has(slot) || batch.completedSlots.has(slot) || batch.queue.includes(slot)) {
+      return;
+    }
+    batch.queue.push(slot);
+  });
+}
+
+function requestNextMonitorSnapshotSlot() {
+  const batch = state.monitorSnapshotBatch;
+  if (!batch) {
+    resetCurrentSnapshotRequest();
+    return;
+  }
+  if (batch.queue.length === 0) {
+    releaseCurrentSnapshotRequest();
+    return;
+  }
+  const slot = batch.queue.shift();
+  batch.activeSlot = slot;
+  batch.requestedSlots.add(slot);
+  bridgeCall("getMonitorSnapshot", {
+    slot,
+    user: 0,
+    includeLinkConfig: batch.includeLinkConfig,
+  }).then((response) => {
+    if (response && response.ok === false) {
+      completeMonitorSnapshotSlot(null);
+    }
+  }).catch(() => {
+    completeMonitorSnapshotSlot(null);
+  });
+}
+
+function completeMonitorSnapshotSlot(data) {
+  const batch = state.monitorSnapshotBatch;
+  if (!batch) {
+    return;
+  }
+
+  const slot = slotIndexValue(data?.slot ?? batch.activeSlot);
+  if (slot !== null) {
+    batch.completedSlots.add(slot);
+  }
+  batch.activeSlot = null;
+
+  if (data && typeof data === "object") {
+    batch.snapshots.push(data);
+    state.lastMonitorContext = data;
+    if (!batch.expandedFromStatus && isApOneToManyMonitorContext(data)) {
+      batch.expandedFromStatus = true;
+      enqueueMonitorSnapshotSlots(connectedMonitorSlotIndexes(data));
+    } else if (!batch.expandedFromStatus) {
+      batch.expandedFromStatus = true;
+    }
+  }
+
+  requestNextMonitorSnapshotSlot();
+}
+
+function resetCurrentSnapshotRequest() {
+  state.monitorSnapshotPending = false;
+  state.monitorSnapshotQueued = false;
+  state.monitorSnapshotQueuedForce = false;
+  state.monitorSnapshotQueuedIncludeLinkConfig = false;
+  state.monitorSnapshotBatch = null;
+}
+
+function releaseCurrentSnapshotRequest() {
+  const batch = state.monitorSnapshotBatch;
+  const snapshots = batch ? [...batch.snapshots] : [];
+  const runQueued = state.monitorSnapshotQueued;
+  const forceQueued = state.monitorSnapshotQueuedForce;
+  const includeLinkConfigQueued = state.monitorSnapshotQueuedIncludeLinkConfig;
+  const renderOptions = {
+    renderDom: batch.renderDom,
+    updateDisplayCache: batch.updateDisplayCache,
+  };
+  if (batch.record !== undefined) {
+    renderOptions.record = batch.record;
+  }
+  resetCurrentSnapshotRequest();
+  renderMonitorSnapshots(snapshots, renderOptions);
+  if (runQueued) {
+    window.setTimeout(
+      () => requestCurrentSnapshot(forceQueued, { includeLinkConfig: includeLinkConfigQueued }),
+      0
+    );
   }
 }
 
@@ -3557,10 +4197,12 @@ function startRefresh() {
 
 function stopRefresh() {
   if (!state.refreshTimer) {
+    resetCurrentSnapshotRequest();
     return;
   }
   window.clearInterval(state.refreshTimer);
   state.refreshTimer = null;
+  resetCurrentSnapshotRequest();
 }
 
 function startDeviceScan() {
@@ -3630,6 +4272,8 @@ function renderDevices(response) {
     state.deviceConnected = false;
     state.connectedDeviceIndex = -1;
     state.connectedDeviceSerial = "";
+    stopRefresh();
+    resetRemoteCapability();
     const option = document.createElement("option");
     option.value = "";
     option.dataset.deviceOption = "not-found";
@@ -3688,13 +4332,19 @@ function renderConnection(stateMap) {
   state.deviceConnected = !!stateMap.deviceConnected;
   state.connectedDeviceIndex = state.deviceConnected ? Number(stateMap.deviceIndex) : -1;
   state.connectedDeviceSerial = state.deviceConnected ? String(stateMap.deviceSerial || "") : "";
+  updateRemoteCapability(stateMap);
   renderMonitorLogControls();
+  syncPairRefreshButton();
   syncTargetDeviceControls();
   if (state.deviceConnected) {
     const deviceChanged = previousDeviceSerial && state.connectedDeviceSerial
       ? !sameDeviceSerial(previousDeviceSerial, state.connectedDeviceSerial)
       : previousDeviceIndex !== state.connectedDeviceIndex;
     if (deviceChanged) {
+      resetCurrentSnapshotRequest();
+      state.lastMonitor = null;
+      state.lastMonitorSnapshots = [];
+      state.lastMonitorContext = null;
       resetLinkConfigForms();
       clearPendingLinkUiValues();
       clearConfigFileView();
@@ -3721,6 +4371,7 @@ function renderConnection(stateMap) {
   state.openingDeviceIndex = null;
   state.openingDeviceSerial = "";
   stopMonitorRecording(true);
+  resetCurrentSnapshotRequest();
   resetLinkConfigForms();
   clearPendingLinkUiValues();
   clearConfigFileView();
@@ -3729,6 +4380,9 @@ function renderConnection(stateMap) {
   stopRefresh();
   state.lastOverview = null;
   state.lastMonitor = null;
+  state.lastMonitorSnapshots = [];
+  state.lastMonitorContext = null;
+  resetRemoteCapability();
   syncFirmwareControls();
   setEmptySummary();
   if (stateMap.daemonConnected || stateMap.hostConnected) {
@@ -3749,6 +4403,7 @@ function renderOverview(data) {
   }
 
   state.lastOverview = data;
+  updateRemoteCapability(data);
   syncTargetDeviceControls();
   if (data.deviceSerial) {
     state.connectedDeviceSerial = String(data.deviceSerial);
@@ -3761,13 +4416,11 @@ function renderOverview(data) {
     .filter(Boolean)
     .join(" / ");
 
-  const role = data.role || "";
-  els.roleSegment.querySelectorAll(".segment-button").forEach((button) => {
-    button.classList.toggle("active", button.dataset.role === role);
-  });
+  setRoleDisplay(data.role);
   refreshMcsOptionsForEndpoint(activeLinkEndpointScope());
 
-  renderPairTable(visibleSlotsForMode(data));
+  syncPairSlotCountControl(data);
+  renderPairTable(visibleSlotsForOverview(data));
   requestAvailablePowerRangeSources();
   syncFirmwareControls();
   startRefresh();
@@ -3841,6 +4494,9 @@ function bandwidthText(value) {
 const monitorCsvBaseColumns = [
   "时间",
   "采样序号",
+  "标记",
+  "slot",
+  "端",
   "对频状态",
   "工作频点",
   "频宽",
@@ -3946,8 +4602,12 @@ function monitorSideLogData(data, side) {
   };
 }
 
-function recordMonitorSnapshot(data) {
+function recordMonitorSnapshots(snapshots) {
   if (!state.monitorLog.recording) {
+    return;
+  }
+  const displaySnapshots = monitorDisplaySnapshots(snapshots);
+  if (displaySnapshots.length === 0) {
     return;
   }
 
@@ -3957,12 +4617,20 @@ function recordMonitorSnapshot(data) {
   state.monitorLog.rows.push({
     timestamp: monitorCsvTimestamp(timestamp),
     sampleIndex,
-    pairStatus: monitorPairStatusText(data),
-    local: monitorSideLogData(data, "local"),
-    peer: monitorSideLogData(data, "peer"),
+    marker: "",
+    slots: displaySnapshots.map((snapshot) => ({
+      slot: monitorSnapshotSlotIndex(snapshot),
+      pairStatus: monitorPairStatusText(snapshot),
+      local: monitorSideLogData(snapshot, "local"),
+      peer: monitorSideLogData(snapshot, "peer"),
+    })),
   });
   state.monitorLog.exported = false;
   renderMonitorLogControls();
+}
+
+function recordMonitorSnapshot(data) {
+  recordMonitorSnapshots(data ? [data] : []);
 }
 
 function csvEscape(value) {
@@ -3976,11 +4644,14 @@ function csvEscape(value) {
 function collectMonitorSweepColumns(samples) {
   const columns = new Map();
   samples.forEach((sample) => {
-    ["local", "peer"].forEach((side) => {
-      (sample?.[side]?.sweepColumns || []).forEach((column) => {
-        if (!columns.has(column.key)) {
-          columns.set(column.key, column);
-        }
+    const slots = Array.isArray(sample?.slots) ? sample.slots : [];
+    slots.forEach((slotSample) => {
+      ["local", "peer"].forEach((side) => {
+        (slotSample?.[side]?.sweepColumns || []).forEach((column) => {
+          if (!columns.has(column.key)) {
+            columns.set(column.key, column);
+          }
+        });
       });
     });
   });
@@ -3988,16 +4659,15 @@ function collectMonitorSweepColumns(samples) {
     .sort((left, right) => left.index - right.index || left.frequencyMhz - right.frequencyMhz);
 }
 
-function monitorSampleCsvRow(sample, side, sweepColumns, includeGroupColumns) {
-  const sideData = sample?.[side] || {};
-  let groupColumns = ["", "", ""];
-  if (sample?.marker && side === "peer") {
-    groupColumns = [sample.marker, "", ""];
-  } else if (includeGroupColumns) {
-    groupColumns = [sample.timestamp, sample.sampleIndex, sample.pairStatus];
-  }
+function monitorSampleCsvRow(sample, slotSample, side, sweepColumns) {
+  const sideData = slotSample?.[side] || {};
   return [
-    ...groupColumns,
+    sample?.timestamp ?? "",
+    sample?.sampleIndex ?? "",
+    sample?.marker ?? "",
+    `slot${slotSample?.slot ?? 0}`,
+    side === "local" ? "本机" : "对端",
+    slotSample?.pairStatus ?? "",
     sideData.frequency ?? "",
     sideData.bandwidth ?? "",
     sideData.txPower ?? "",
@@ -4016,8 +4686,11 @@ function monitorRowsToCsv(samples) {
   const header = [...monitorCsvBaseColumns, ...sweepColumns.map((column) => column.header)];
   const body = [];
   samples.forEach((sample) => {
-    body.push(monitorSampleCsvRow(sample, "local", sweepColumns, true));
-    body.push(monitorSampleCsvRow(sample, "peer", sweepColumns, false));
+    const slots = Array.isArray(sample?.slots) ? sample.slots : [];
+    slots.forEach((slotSample) => {
+      body.push(monitorSampleCsvRow(sample, slotSample, "local", sweepColumns));
+      body.push(monitorSampleCsvRow(sample, slotSample, "peer", sweepColumns));
+    });
   });
   return [header, ...body]
     .map((row) => row.map(csvEscape).join(","))
@@ -4039,6 +4712,30 @@ function compactDateTime(date) {
 
 function monitorLogDefaultFileName() {
   return `l4_link_log_${compactDateTime(state.monitorLog.startedAt || new Date())}.csv`;
+}
+
+function runtimeLogDefaultFileName() {
+  return `l4_runtime_log_${compactDateTime(new Date())}.txt`;
+}
+
+function runtimeLogsToText() {
+  if (state.runtimeLogs.length === 0) {
+    return "";
+  }
+
+  const address = state.appInfo.address || "127.0.0.1";
+  const port = state.appInfo.port || 50000;
+  const header = [
+    t("runtimeLog.title"),
+    `${t("runtimeLog.exportedAt")}: ${monitorCsvTimestamp(new Date())}`,
+    `${t("runtimeLog.appVersion")}: ${state.appInfo.version || "--"}`,
+    `${t("runtimeLog.daemonAddress")}: ${address}:${port}`,
+  ];
+  if (state.runtimeLogsDropped > 0) {
+    header.push(formatTemplate("runtimeLog.dropped", state.runtimeLogsDropped));
+  }
+  header.push("");
+  return [...header, ...state.runtimeLogs.map(runtimeLogLineText)].join("\r\n") + "\r\n";
 }
 
 function monitorRecordStopIntent() {
@@ -4107,9 +4804,10 @@ function stopMonitorRecording(auto = false) {
   }
   state.monitorLog.recording = false;
   state.monitorLog.stopIntent = false;
-  appendLog(auto
+  const message = auto
     ? t("monitor.recordAutoStopped")
-    : formatTemplate("monitor.recordStopped", state.monitorLog.rows.length));
+    : formatTemplate("monitor.recordStopped", state.monitorLog.rows.length);
+  appendLog(message, systemLogTargetMeta());
   if (state.currentCode !== "L4.MONITOR") {
     stopRefresh();
   }
@@ -4122,7 +4820,7 @@ async function handleMonitorRecordToggle() {
     return;
   }
   if (!state.deviceConnected) {
-    appendLog(t("common.deviceRequired"));
+    appendLog(t("common.deviceRequired"), systemLogTargetMeta());
     renderMonitorLogControls();
     return;
   }
@@ -4140,10 +4838,13 @@ async function handleMonitorRecordToggle() {
 
   resetMonitorLogForRecording();
   state.monitorLog.recording = true;
-  appendLog(t("monitor.recordStarted"));
+  appendLog(t("monitor.recordStarted"), systemLogTargetMeta());
   startRefresh();
-  if (state.lastMonitor) {
-    recordMonitorSnapshot(state.lastMonitor);
+    const snapshots = state.lastMonitorSnapshots.length > 0
+      ? state.lastMonitorSnapshots
+      : state.lastMonitor ? [state.lastMonitor] : [];
+    if (snapshots.length > 0) {
+      recordMonitorSnapshots(snapshots);
   }
   renderMonitorLogControls();
 }
@@ -4154,7 +4855,7 @@ function addMonitorMarker() {
   }
   const lastSample = state.monitorLog.rows[state.monitorLog.rows.length - 1];
   if (!lastSample) {
-    appendLog(t("monitor.recordNoData"));
+    appendLog(t("monitor.recordNoData"), systemLogTargetMeta());
     renderMonitorLogControls();
     return;
   }
@@ -4162,13 +4863,13 @@ function addMonitorMarker() {
   const marker = `Flag_${state.monitorLog.markerIndex}`;
   lastSample.marker = marker;
   state.monitorLog.exported = false;
-  appendLog(formatTemplate("monitor.recordMarked", marker));
+  appendLog(formatTemplate("monitor.recordMarked", marker), systemLogTargetMeta());
   renderMonitorLogControls();
 }
 
 async function exportMonitorLogCsv() {
   if (state.monitorLog.recording || state.monitorLog.rows.length === 0) {
-    appendLog(t("monitor.recordNoData"));
+    appendLog(t("monitor.recordNoData"), systemLogTargetMeta());
     renderMonitorLogControls();
     return;
   }
@@ -4179,32 +4880,59 @@ async function exportMonitorLogCsv() {
   });
   if (response.ok) {
     state.monitorLog.exported = true;
-    appendLog(response.message || t("monitor.recordExported"));
+    appendLog(response.message || t("monitor.recordExported"), systemLogTargetMeta());
   } else if (response.code !== -499) {
-    appendLog(response.message || t("common.operationFailed"));
+    appendLog(response.message || t("common.operationFailed"), systemLogTargetMeta());
   }
   renderMonitorLogControls();
 }
 
-function renderMonitor(data, options = {}) {
-  state.lastMonitor = data;
-  syncLinkConfigFromSnapshot(data);
-  if (options.record !== false) {
-    recordMonitorSnapshot(data);
-  }
-
-  if (!els.monitorTableBody) {
+async function saveRuntimeLog() {
+  const text = runtimeLogsToText();
+  if (!text.trim()) {
+    appendLog(t("runtimeLog.noData"), systemLogTargetMeta());
     return;
   }
 
-  if (!data.linkReady) {
-    clearMonitorView(localizedKnownText(data.message, "monitor.linkNotReady"));
-    return;
+  const response = await bridgeCall("exportRuntimeLogText", {
+    text,
+    defaultFileName: runtimeLogDefaultFileName(),
+  });
+  if (response.ok) {
+    appendLog(response.message || t("runtimeLog.saved"), systemLogTargetMeta());
+  } else if (response.code !== -499) {
+    appendLog(response.message || t("common.operationFailed"), systemLogTargetMeta());
   }
+}
 
+function monitorSnapshotSlotIndex(data = {}) {
+  return slotIndexValue(data.slot) ?? 0;
+}
+
+function monitorSnapshotConnected(data = {}) {
+  const slot = slotByIndex(Array.isArray(data.slots) ? data.slots : [], monitorSnapshotSlotIndex(data));
+  return slot ? slotLinkConnected(slot) : Boolean(data.linkReady);
+}
+
+function sortedMonitorSnapshots(snapshots) {
+  return (Array.isArray(snapshots) ? snapshots : [])
+    .filter((item) => item && typeof item === "object")
+    .sort((left, right) => monitorSnapshotSlotIndex(left) - monitorSnapshotSlotIndex(right));
+}
+
+function monitorDisplaySnapshots(snapshots) {
+  const sorted = sortedMonitorSnapshots(snapshots);
+  const context = sorted[0] || monitorSnapshotContext();
+  if (isApOneToManyMonitorContext(context)) {
+    return sorted.filter(monitorSnapshotConnected);
+  }
+  return sorted.slice(0, 1);
+}
+
+function monitorRowData(data) {
   const rx = data.rx || {};
   const tx = data.tx || {};
-  const selfRows = [
+  return [
     {
       name: t("monitor.local"),
       snr: qualitySnrText(data.userQuality),
@@ -4230,25 +4958,86 @@ function renderMonitor(data, options = {}) {
       disc: distanceText(data.distance),
     },
   ];
+}
 
-  els.monitorTableBody.innerHTML = selfRows.map((row) => `
+function monitorRowsHtml(data, options = {}) {
+  const rows = monitorRowData(data);
+  if (options.peerName && rows[1]) {
+    rows[1] = { ...rows[1], name: options.peerName };
+  }
+  return rows.map((row) => `
     <tr>
-      <td>${row.name}</td>
-      <td>${row.freq}</td>
-      <td>${row.bw}</td>
-      <td>${row.txp}</td>
-      <td>${row.mcs}</td>
-      <td>${row.rssi}</td>
-      <td>${row.snr}</td>
-      <td>${row.err}</td>
-      <td>${row.tp}</td>
-      <td>${row.disc}</td>
+      <td>${escapeHtml(row.name)}</td>
+      <td>${escapeHtml(row.freq)}</td>
+      <td>${escapeHtml(row.bw)}</td>
+      <td>${escapeHtml(row.txp)}</td>
+      <td>${escapeHtml(row.mcs)}</td>
+      <td>${escapeHtml(row.rssi)}</td>
+      <td>${escapeHtml(row.snr)}</td>
+      <td>${escapeHtml(row.err)}</td>
+      <td>${escapeHtml(row.tp)}</td>
+      <td>${escapeHtml(row.disc)}</td>
     </tr>
   `).join("");
+}
 
+function renderMonitorSnapshots(snapshots, options = {}) {
+  const sortedSnapshots = sortedMonitorSnapshots(snapshots);
+  const primarySnapshot = sortedSnapshots.find(monitorSnapshotConnected) || sortedSnapshots[0] || null;
+  const renderDom = options.renderDom !== false;
+  const updateDisplayCache = options.updateDisplayCache !== false;
+  if (primarySnapshot) {
+    state.lastMonitor = primarySnapshot;
+    state.lastMonitorContext = primarySnapshot;
+    if (primarySnapshot.linkConfig) {
+      syncLinkConfigFromSnapshot(primarySnapshot);
+    }
+  }
+
+  const slotGrouped = isApOneToManyMonitorContext(primarySnapshot || monitorSnapshotContext());
+  const displaySnapshots = slotGrouped
+    ? sortedSnapshots.filter(monitorSnapshotConnected)
+    : sortedSnapshots.slice(0, 1);
+  if (updateDisplayCache) {
+    state.lastMonitorSnapshots = displaySnapshots;
+  }
+
+  if (options.record !== false) {
+    recordMonitorSnapshots(displaySnapshots);
+  }
+
+  if (!renderDom || !els.monitorTableBody) {
+    return;
+  }
+
+  if (slotGrouped && displaySnapshots.length === 0) {
+    clearMonitorView(t("empty.noConnectedSlot"));
+    return;
+  }
+
+  if (!slotGrouped && (!primarySnapshot || !primarySnapshot.linkReady)) {
+    clearMonitorView(localizedKnownText(primarySnapshot?.message, "monitor.linkNotReady"));
+    return;
+  }
+
+  els.monitorLinkTable?.classList.toggle("slot-grouped", slotGrouped);
+  if (els.monitorTableHead) {
+    els.monitorTableHead.hidden = false;
+  }
+  els.monitorTableBody.innerHTML = slotGrouped
+    ? displaySnapshots
+      .map((snapshot) => monitorRowsHtml(snapshot, {
+        peerName: `slot${monitorSnapshotSlotIndex(snapshot)}`,
+      }))
+      .join("")
+    : monitorRowsHtml(primarySnapshot);
+
+  const chartSnapshot = displaySnapshots[0] || primarySnapshot || {};
+  const rx = chartSnapshot.rx || {};
+  const tx = chartSnapshot.tx || {};
   renderSweepCharts(
-    Array.isArray(data.channels) ? data.channels : [],
-    Array.isArray(data.peerChannels) ? data.peerChannels : [],
+    Array.isArray(chartSnapshot.channels) ? chartSnapshot.channels : [],
+    Array.isArray(chartSnapshot.peerChannels) ? chartSnapshot.peerChannels : [],
     {
       local: {
         frequency: tx.frequency,
@@ -4263,7 +5052,15 @@ function renderMonitor(data, options = {}) {
   scheduleSlimScrollbarUpdate();
 }
 
+function renderMonitor(data, options = {}) {
+  renderMonitorSnapshots(data ? [data] : [], options);
+}
+
 function clearMonitorView(message = t("monitor.linkNotReady")) {
+  els.monitorLinkTable?.classList.remove("slot-grouped");
+  if (els.monitorTableHead) {
+    els.monitorTableHead.hidden = false;
+  }
   if (els.monitorTableBody) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
@@ -4557,14 +5354,77 @@ function isOneToOneMode(data) {
   return modeText === "1对1" || modeText === "单用户";
 }
 
-function visibleSlotsForMode(data) {
-  const slots = Array.isArray(data.slots) ? data.slots : [];
-  if (!isOneToOneMode(data)) {
-    return slots;
+function isOneToManyMode(data) {
+  const modeValue = Number(data.modeValue);
+  if (Number.isInteger(modeValue) && modeValue === 1) {
+    return true;
   }
 
-  const slot0 = slots.find((slot) => Number(slot.slot) === 0);
-  return slot0 ? [slot0] : slots.slice(0, 1);
+  const modeText = String(data.mode || "").replace(/\s+/g, "").toUpperCase();
+  return modeText === "1对多" || modeText === "多用户" || modeText === "1VN";
+}
+
+function slotByIndex(slots, index) {
+  return slots.find((slot) => Number(slot.slot) === index) || null;
+}
+
+function clampPairSlotDisplayCount(value) {
+  const count = Number(value);
+  if (!Number.isInteger(count)) {
+    return 8;
+  }
+  return Math.min(8, Math.max(1, count));
+}
+
+function setPairSlotDisplayCount(value, options = {}) {
+  const count = clampPairSlotDisplayCount(value);
+  state.pairSlotDisplayCount = count;
+  state.preferences.pairSlotDisplayCount = count;
+  if (options.persist !== false) {
+    savePreferences();
+    void persistPreferencesToBridge(false);
+  }
+  return count;
+}
+
+function shouldShowPairSlotCountControl(data = state.lastOverview) {
+  return state.deviceConnected && roleDisplayText(data) === "AP" && isOneToManyMode(data);
+}
+
+function syncPairRefreshButton() {
+  if (els.pairRefreshButton) {
+    els.pairRefreshButton.disabled = !state.deviceConnected;
+  }
+}
+
+function syncPairSlotCountControl(data = state.lastOverview) {
+  const visible = shouldShowPairSlotCountControl(data);
+  syncPairRefreshButton();
+  if (els.pairSlotCountControl) {
+    els.pairSlotCountControl.hidden = !visible;
+  }
+  if (els.pairSlotCountSelect) {
+    els.pairSlotCountSelect.disabled = !visible;
+    const count = setPairSlotDisplayCount(state.pairSlotDisplayCount, { persist: false });
+    els.pairSlotCountSelect.value = String(count);
+    syncCustomSelect(els.pairSlotCountSelect);
+  }
+}
+
+function visibleSlotsForOverview(data) {
+  const slots = Array.isArray(data.slots) ? data.slots : [];
+  if (roleDisplayText(data) === "DEV" || isOneToOneMode(data)) {
+    const slot0 = slotByIndex(slots, 0);
+    return slot0 ? [slot0] : slots.slice(0, 1);
+  }
+
+  if (roleDisplayText(data) === "AP" && isOneToManyMode(data)) {
+    const count = clampPairSlotDisplayCount(state.pairSlotDisplayCount);
+    return Array.from({ length: count }, (_, index) => slotByIndex(slots, index))
+      .filter(Boolean);
+  }
+
+  return slots;
 }
 
 function stateClass(slot) {
@@ -4577,6 +5437,29 @@ function stateClass(slot) {
   return "idle";
 }
 
+function pairMacValidationState(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "invalid";
+  }
+  if (/^[0-9A-Fa-f]{8}$/.test(text)) {
+    return "valid";
+  }
+  const parts = text.split(/[:-]/);
+  if (parts.length === 4 && parts.every((part) => /^[0-9A-Fa-f]{2}$/.test(part))) {
+    return "valid";
+  }
+  return "invalid";
+}
+
+function syncPairMacStatus(input) {
+  const status = input.closest(".pair-mac-field")?.querySelector("[data-pair-mac-status]");
+  if (!status) {
+    return;
+  }
+  status.dataset.state = pairMacValidationState(input.value);
+}
+
 function renderPairTable(slots) {
   if (!slots.length) {
     els.pairTableBody.innerHTML = `<tr><td colspan="5" class="empty-cell">${t("empty.noSlotData")}</td></tr>`;
@@ -4585,6 +5468,7 @@ function renderPairTable(slots) {
 
   els.pairTableBody.innerHTML = slots.map((slot) => {
     const mac = slot.peerMac && !isUnsetText(slot.peerMac) ? slot.peerMac : "";
+    const macText = escapeHtml(mac);
     const peerFirmwareVersion = slot.peerFirmwareVersion || "--";
     const firmwareText = escapeHtml(peerFirmwareVersion);
     const pairing = !!slot.paired;
@@ -4594,12 +5478,13 @@ function renderPairTable(slots) {
         <td><span class="link-state ${stateClass(slot)}">${linkStateDisplayText(slot)}</span></td>
         <td class="peer-firmware-version" title="${firmwareText}">${firmwareText}</td>
         <td>
-          <input class="pair-mac-input" type="text" value="${mac}" placeholder="11:22:33:44" ${state.deviceConnected ? "" : "disabled"}>
+          <div class="pair-mac-field">
+            <input class="pair-mac-input" type="text" value="${macText}" placeholder="00:00:00:00" ${state.deviceConnected ? "" : "disabled"}>
+            <span class="pair-mac-status" data-pair-mac-status data-state="${pairMacValidationState(mac)}" aria-hidden="true"></span>
+          </div>
         </td>
         <td>
           <div class="pair-actions">
-            <button class="pair-button" type="button" data-action="query" ${state.deviceConnected ? "" : "disabled"}>${t("pair.query")}</button>
-            <button class="pair-button" type="button" data-action="set" ${state.deviceConnected ? "" : "disabled"}>${t("pair.set")}</button>
             <button class="pair-button ${pairing ? "danger" : ""}" type="button" data-action="${pairing ? "stop" : "pair"}" ${state.deviceConnected ? "" : "disabled"}>${pairing ? t("pair.stop") : t("pair.start")}</button>
           </div>
         </td>
@@ -4629,6 +5514,10 @@ function renderPairUpdate(data) {
           slot.paired = !!data.paired;
           rerenderPairTable = true;
         }
+        if (Object.prototype.hasOwnProperty.call(data, "active")) {
+          slot.paired = !!data.active;
+          rerenderPairTable = true;
+        }
         if (typeof data.mac === "string") {
           slot.peerMac = isUnsetText(data.mac) ? "" : data.mac;
           rerenderPairTable = true;
@@ -4636,7 +5525,8 @@ function renderPairUpdate(data) {
       }
     }
     if (rerenderPairTable) {
-      renderPairTable(visibleSlotsForMode(state.lastOverview));
+      syncPairSlotCountControl(state.lastOverview);
+      renderPairTable(visibleSlotsForOverview(state.lastOverview));
     }
 
     const row = els.pairTableBody.querySelector(`tr[data-slot="${data.slot}"]`);
@@ -4644,24 +5534,35 @@ function renderPairUpdate(data) {
       const input = row.querySelector(".pair-mac-input");
       if (input) {
         input.value = isUnsetText(data.mac) ? "" : data.mac;
+        syncPairMacStatus(input);
       }
     }
   }
   if (data.status) {
-    appendLog(data.status);
+    appendLog(data.status, Number.isInteger(data.slot) ? localSlotLogTargetMeta(data.slot) : localSlotLogTargetMeta(0));
   }
   syncTargetDeviceControls();
   syncFirmwareControls();
-  if (state.deviceConnected && data.event !== "linkState") {
-    bridgeCall("getOverview");
-  }
 }
 
 function renderOperation(response) {
   const ok = !!response.ok;
   const data = responseData(response);
+  updateRemoteCapability(data);
   const message = response.message || (ok ? t("common.operationDone") : t("common.operationFailed"));
-  appendLog(message);
+  const operation = String(data.operation || "");
+  const fallbackMeta = operation.startsWith("firmware.")
+    ? firmwareLogTargetMeta()
+    : operation.startsWith("pair.")
+      ? localSlotLogTargetMeta(data.slot ?? data.targetSlot ?? 0)
+      : operation.startsWith("persist.")
+        ? logTargetMetaForScope(activePersistTargetScope())
+        : operation.startsWith("config.")
+          ? logTargetMetaForScope(activeProfileTargetScope())
+          : operation.startsWith("link.")
+            ? logTargetMetaForScope(activeLinkEndpointScope())
+            : systemLogTargetMeta();
+  appendLog(message, logTargetMetaFromData(data, fallbackMeta));
   if (data.operation === "pair.setMac" && ok) {
     bridgeCall("getOverview");
   }
@@ -4835,7 +5736,7 @@ function collectLinkConfig(actions = []) {
 
 async function sendLinkConfig(actions) {
   if (!state.deviceConnected) {
-    appendLog(t("common.deviceRequired"));
+    appendLog(t("common.deviceRequired"), logTargetMetaForScope(activeLinkEndpointScope()));
     return;
   }
   const payload = collectLinkConfig(actions);
@@ -5097,7 +5998,7 @@ function updatePersistSavedStateForData(data) {
 
 async function applyPersistConfig(fields = []) {
   if (!state.deviceConnected) {
-    appendLog(t("common.deviceRequired"));
+    appendLog(t("common.deviceRequired"), logTargetMetaForScope(activePersistTargetScope()));
     updatePersistDirtyState();
     return;
   }
@@ -5141,6 +6042,27 @@ async function applyPersistConfig(fields = []) {
   if (response && response.ok === false) {
     setPersistStatus("failed");
   }
+}
+
+async function confirmAndRequestDeviceReboot(targetLabel, options, { updatePersistStatus = false } = {}) {
+  const confirmed = await showConfirmDialog({
+    title: t("persist.rebootTitle"),
+    message: formatTemplate("persist.rebootMessage", targetLabel),
+    kicker: t("common.operation"),
+    confirmText: t("persist.rebootAction"),
+    tone: "default",
+  });
+  if (!confirmed) {
+    return null;
+  }
+  if (updatePersistStatus) {
+    setPersistStatus("applying");
+  }
+  const response = await bridgeCall("rebootPersistConfig", options);
+  if (updatePersistStatus && response && response.ok === false) {
+    setPersistStatus("failed");
+  }
+  return response;
 }
 
 function renderPersistConfig(data) {
@@ -5225,8 +6147,11 @@ function renderConfigFile(data) {
 }
 
 function handleConfigFileUpdated(data) {
+  updateRemoteCapability(data);
   ensureScopedPowerRange(data?.targetScope || "local").jsonPending = false;
   renderConfigFile(data);
+  syncTargetDeviceControls();
+  syncFirmwareControls();
 }
 
 function renderOtaProgress(data) {
@@ -5239,8 +6164,9 @@ function renderOtaProgress(data) {
 
 async function startFirmwareUpgradeFromCurrentSelection() {
   const target = currentUpgradeTarget();
+  state.firmwareLogTarget = firmwareLogTargetMetaFromRemoteSlot(currentUpgradeRemoteSlot());
   if (target === "remote" && !hasRemoteUpgradeTarget()) {
-    appendLog(t("firmware.remoteUnavailable"));
+    appendLog(remoteUpgradeUnavailableMessage(), firmwareLogTargetMeta());
     syncFirmwareControls();
     return;
   }
@@ -5255,7 +6181,7 @@ async function startFirmwareUpgradeFromCurrentSelection() {
   });
   if (!response.ok) {
     syncFirmwareControls();
-    appendLog(response.message);
+    appendLog(response.message, firmwareLogTargetMeta());
   }
 }
 
@@ -5276,7 +6202,7 @@ async function confirmOnlineFirmwareUpgrade(data) {
       state.firmwareCheckPending = false;
       state.firmwareBusyKey = "";
       syncFirmwareControls();
-      appendLog(response.message);
+      appendLog(response.message, firmwareLogTargetMeta());
     }
   } else {
     syncFirmwareControls();
@@ -5321,18 +6247,37 @@ async function handlePairAction(button) {
     return;
   }
   const slot = Number(row.dataset.slot);
-  const input = row.querySelector(".pair-mac-input");
   const action = button.dataset.action;
 
-  if (action === "query") {
-    await bridgeCall("getPairMac", { slot });
-  } else if (action === "set") {
-    await bridgeCall("setPairMac", { slot, mac: input.value.trim() });
-  } else if (action === "pair") {
+  if (action === "pair") {
     await bridgeCall("startPair", { slot, timeoutSeconds: 100 });
   } else if (action === "stop") {
     await bridgeCall("stopPair");
   }
+}
+
+async function handlePairMacSubmit(input) {
+  const row = input.closest("tr[data-slot]");
+  if (!row || input.disabled) {
+    return;
+  }
+  const slot = Number(row.dataset.slot);
+  if (!Number.isInteger(slot)) {
+    return;
+  }
+  await bridgeCall("setPairMac", { slot, mac: input.value.trim() });
+}
+
+async function refreshPairMacInput(input) {
+  const row = input.closest("tr[data-slot]");
+  if (!row || input.disabled || !state.deviceConnected) {
+    return;
+  }
+  const slot = Number(row.dataset.slot);
+  if (!Number.isInteger(slot)) {
+    return;
+  }
+  await bridgeCall("getPairMac", { slot });
 }
 
 function activateModule(button) {
@@ -5355,18 +6300,22 @@ function activateModule(button) {
   } else if (state.currentCode === "L4.INFO" && state.deviceConnected) {
     stopRefresh();
   } else if (state.currentCode === "L4.MONITOR" && state.deviceConnected) {
-    bridgeCall("getMonitorSnapshot", { slot: 0, user: 0 });
+    prepareMonitorViewForRefresh();
+    requestCurrentSnapshot(true);
     startRefresh();
   } else {
     stopRefresh();
     if (state.currentCode === "L4.LINK" && state.deviceConnected) {
-      if (state.lastMonitor) {
+      if (state.lastMonitor?.linkConfig) {
         syncLinkConfigFromSnapshot(state.lastMonitor);
       }
-      requestCurrentSnapshot();
+      requestCurrentSnapshot(false, { includeLinkConfig: true });
     }
     if (state.currentCode === "L4.PERSIST" && state.deviceConnected) {
       requestPersistConfig();
+    }
+    if (state.currentCode === "L4.SETTINGS") {
+      renderRuntimeLog({ forceScroll: true });
     }
   }
   if (state.monitorLog.recording) {
@@ -5514,6 +6463,8 @@ function wireModuleUi() {
   els.monitorMarkButton?.addEventListener("click", addMonitorMarker);
   els.monitorExportButton?.addEventListener("click", exportMonitorLogCsv);
   renderMonitorLogControls();
+  els.saveRuntimeLogButton?.addEventListener("click", saveRuntimeLog);
+  renderRuntimeLog();
 
   const linkSelectActions = {
     bandSelect: "band",
@@ -5602,22 +6553,7 @@ function wireModuleUi() {
   });
 
   els.persistRebootButton?.addEventListener("click", async () => {
-    const targetLabel = persistTargetLabel();
-    const confirmed = await showConfirmDialog({
-      title: t("persist.rebootTitle"),
-      message: formatTemplate("persist.rebootMessage", targetLabel),
-      kicker: t("common.operation"),
-      confirmText: t("persist.rebootAction"),
-      tone: "default",
-    });
-    if (!confirmed) {
-      return;
-    }
-    setPersistStatus("applying");
-    const response = await bridgeCall("rebootPersistConfig", persistRequestOptions());
-    if (response && response.ok === false) {
-      setPersistStatus("failed");
-    }
+    await confirmAndRequestDeviceReboot(persistTargetLabel(), persistRequestOptions(), { updatePersistStatus: true });
   });
 
   state.persistSavedState = capturePersistState();
@@ -5640,14 +6576,15 @@ function wireModuleUi() {
       setFirmwareProgress(0);
       syncFirmwareControls();
     } else if (response.code !== -499) {
-      appendLog(response.message);
+      appendLog(response.message, systemLogTargetMeta());
     }
   });
 
   els.checkFirmwareUpdate?.addEventListener("click", async () => {
     const target = currentUpgradeTarget();
+    state.firmwareLogTarget = firmwareLogTargetMetaFromRemoteSlot(currentUpgradeRemoteSlot());
     if (target === "remote" && !hasRemoteUpgradeTarget()) {
-      appendLog(t("firmware.remoteUnavailable"));
+      appendLog(remoteUpgradeUnavailableMessage(), firmwareLogTargetMeta());
       syncFirmwareControls();
       return;
     }
@@ -5662,18 +6599,20 @@ function wireModuleUi() {
       state.firmwareCheckPending = false;
       state.firmwareBusyKey = "";
       syncFirmwareControls();
-      appendLog(response.message);
+      appendLog(response.message, firmwareLogTargetMeta());
     }
   });
 
   els.startUpgrade?.addEventListener("click", async () => {
     if (!state.firmwarePath) {
-      appendLog(t("firmware.selectFirst"));
+      state.firmwareLogTarget = firmwareLogTargetMetaFromRemoteSlot(currentUpgradeRemoteSlot());
+      appendLog(t("firmware.selectFirst"), firmwareLogTargetMeta());
       return;
     }
     const target = activeSegmentValue("[data-upgrade-target-group]", "local");
+    state.firmwareLogTarget = firmwareLogTargetMetaFromRemoteSlot(currentUpgradeRemoteSlot());
     if (target === "remote" && !hasRemoteUpgradeTarget()) {
-      appendLog(t("firmware.remoteUnavailable"));
+      appendLog(remoteUpgradeUnavailableMessage(), firmwareLogTargetMeta());
       syncFirmwareControls();
       return;
     }
@@ -5691,14 +6630,14 @@ function wireModuleUi() {
   });
 
   els.readConfigFile?.addEventListener("click", () => {
-    bridgeCall("readConfigFile", profileRequestOptions(activeProfileTargetScope(), { mode: 0 }));
+    bridgeCall("readConfigFile", profileRequestOptions(activeProfileTargetScope(), { mode: 0, forceRead: true }));
   });
   els.writeConfigFile?.addEventListener("click", async () => {
     saveActiveProfileForm();
     try {
       JSON.parse(els.jsonEditor.value);
     } catch (error) {
-      appendLog(formatTemplate("profile.parseError", error.message));
+      appendLog(formatTemplate("profile.parseError", error.message), logTargetMetaForScope(activeProfileTargetScope()));
       return;
     }
     const targetLabel = profileTargetLabel();
@@ -5726,21 +6665,24 @@ function wireModuleUi() {
     }
     await bridgeCall("resetConfigFile", profileRequestOptions());
   });
+  els.rebootConfigFile?.addEventListener("click", async () => {
+    await confirmAndRequestDeviceReboot(profileTargetLabel(), profileRequestOptions());
+  });
   els.importConfigFile?.addEventListener("click", async () => {
     const response = await bridgeCall("importConfigFile");
     if (response.ok) {
       renderConfigFile(responseData(response));
-      appendLog(response.message);
+      appendLog(response.message, systemLogTargetMeta());
     } else if (response.code !== -499) {
-      appendLog(response.message);
+      appendLog(response.message, systemLogTargetMeta());
     }
   });
   els.exportConfigFile?.addEventListener("click", async () => {
     const response = await bridgeCall("exportConfigFile", { text: els.jsonEditor.value });
     if (response.ok) {
-      appendLog(response.message);
+      appendLog(response.message, systemLogTargetMeta());
     } else if (response.code !== -499) {
-      appendLog(response.message);
+      appendLog(response.message, systemLogTargetMeta());
     }
   });
 
@@ -5842,6 +6784,54 @@ function wireUi() {
       handlePairAction(button);
     }
   });
+  els.pairTableBody.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.isComposing) {
+      return;
+    }
+    const input = event.target.closest(".pair-mac-input");
+    if (!input) {
+      return;
+    }
+    input.dataset.pairMacSubmitted = "true";
+    event.preventDefault();
+    handlePairMacSubmit(input);
+  });
+  els.pairTableBody.addEventListener("focusin", (event) => {
+    const input = event.target.closest(".pair-mac-input");
+    if (!input) {
+      return;
+    }
+    input.dataset.pairMacSubmitted = "false";
+    syncPairMacStatus(input);
+  });
+  els.pairTableBody.addEventListener("focusout", (event) => {
+    const input = event.target.closest(".pair-mac-input");
+    if (!input) {
+      return;
+    }
+    if (input.dataset.pairMacSubmitted !== "true") {
+      refreshPairMacInput(input);
+    }
+  });
+  els.pairTableBody.addEventListener("input", (event) => {
+    const input = event.target.closest(".pair-mac-input");
+    if (input) {
+      syncPairMacStatus(input);
+    }
+  });
+  els.pairRefreshButton?.addEventListener("click", () => {
+    if (!state.deviceConnected) {
+      return;
+    }
+    bridgeCall("getOverview");
+  });
+  els.pairSlotCountSelect?.addEventListener("change", () => {
+    setPairSlotDisplayCount(els.pairSlotCountSelect.value);
+    syncPairSlotCountControl(state.lastOverview);
+    if (state.lastOverview) {
+      renderPairTable(visibleSlotsForOverview(state.lastOverview));
+    }
+  });
 
   wireModuleUi();
   window.addEventListener("hashchange", activateHashModule);
@@ -5851,7 +6841,7 @@ function wireUi() {
 function connectBridge() {
   if (!window.qt || !window.qt.webChannelTransport || typeof QWebChannel === "undefined") {
     setStatus("offline", t("status.webChannelNotReady"));
-    appendLog(t("log.notInQt"));
+    appendLog(t("log.notInQt"), systemLogTargetMeta());
     return;
   }
 
@@ -5861,13 +6851,13 @@ function connectBridge() {
     state.bridge.deviceListUpdated.connect(renderDevices);
     state.bridge.connectionChanged.connect(renderConnection);
     state.bridge.overviewUpdated.connect(renderOverview);
-    state.bridge.monitorUpdated.connect(renderMonitor);
+    state.bridge.monitorUpdated.connect(completeMonitorSnapshotSlot);
     state.bridge.pairUpdated.connect(renderPairUpdate);
     state.bridge.persistConfigUpdated.connect(renderPersistConfig);
     state.bridge.configFileUpdated.connect(handleConfigFileUpdated);
     state.bridge.operationFinished.connect(renderOperation);
     state.bridge.otaProgressChanged.connect(renderOtaProgress);
-    state.bridge.logMessage.connect(appendLog);
+    state.bridge.logMessage.connect((message) => appendLog(message, inferBridgeLogMeta(message)));
 
     const app = await bridgeCall("getAppInfo");
     const info = responseData(app);

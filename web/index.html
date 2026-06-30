@@ -11,6 +11,10 @@
       const defaultAccent = "#3E7BE1";
       const normalizeTheme = (value) => (value === "dark" ? "dark" : value === "light" ? "light" : "");
       const normalizeLanguage = (value) => (value === "en" ? "en" : value === "zh" ? "zh" : "");
+      const normalizePairSlotDisplayCount = (value) => {
+        const count = Number(value);
+        return Number.isInteger(count) ? Math.min(8, Math.max(1, count)) : 8;
+      };
       const normalizeAccent = (value) => {
         const text = typeof value === "string" ? value.trim() : "";
         const match = text.match(/^#?([0-9a-fA-F]{6})$/);
@@ -70,16 +74,17 @@
       const theme = normalizeTheme(params.get("theme")) || normalizeTheme(stored.theme) || "light";
       const language = normalizeLanguage(params.get("language")) || normalizeLanguage(stored.language) || "zh";
       const accent = normalizeAccent(stored.accent) || defaultAccent;
-      window.__L4_INITIAL_PREFERENCES = { theme, language, accent };
+      const pairSlotDisplayCount = normalizePairSlotDisplayCount(stored.pairSlotDisplayCount);
+      window.__L4_INITIAL_PREFERENCES = { theme, language, accent, pairSlotDisplayCount };
       document.documentElement.dataset.theme = theme;
       document.documentElement.lang = language === "en" ? "en" : "zh-CN";
       setAccentVars(accent, theme);
       document.documentElement.dataset.uiReady = "false";
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260623-theme-accent-monitor-units">
+  <link rel="stylesheet" href="styles.css?v=20260629-runtime-log">
   <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
-  <script src="app.js?v=20260623-theme-accent-monitor-units" defer></script>
+  <script src="app.js?v=20260629-runtime-log" defer></script>
 </head>
 <body>
   <svg class="svg-defs" aria-hidden="true">
@@ -89,6 +94,7 @@
     <symbol id="icon-window-maximize" viewBox="0 0 24 24"><rect class="icon" x="6" y="6" width="12" height="12" rx="1.5"></rect></symbol>
     <symbol id="icon-window-close" viewBox="0 0 24 24"><path class="icon" d="m7 7 10 10"></path><path class="icon" d="m17 7-10 10"></path></symbol>
     <symbol id="icon-search" viewBox="0 0 24 24"><circle class="icon" cx="11" cy="11" r="7"></circle><path class="icon" d="m20 20-3.5-3.5"></path></symbol>
+    <symbol id="icon-refresh" viewBox="0 0 24 24"><path class="icon" d="M20 12a8 8 0 1 1-2.34-5.66"></path><path class="icon" d="M20 4v5h-5"></path></symbol>
     <symbol id="icon-info" viewBox="0 0 24 24"><circle class="icon" cx="12" cy="12" r="9"></circle><path class="icon" d="M12 10v6"></path><path class="icon" d="M12 7h.01"></path></symbol>
     <symbol id="icon-upload" viewBox="0 0 24 24"><path class="icon" d="M12 16V4"></path><path class="icon" d="m7 9 5-5 5 5"></path><path class="icon" d="M20 20H4"></path></symbol>
     <symbol id="icon-activity" viewBox="0 0 24 24"><path class="icon" d="M3 12h4l3-8 4 16 3-8h4"></path></symbol>
@@ -113,6 +119,11 @@
           </div>
         </div>
         <div class="top-controls">
+          <div class="top-role">
+            <div id="roleSegment" class="top-role-value" aria-label="设备角色" data-i18n-aria-label="info.roleAria" data-role="">
+              <span id="roleValue" class="top-role-text">--</span>
+            </div>
+          </div>
           <div class="top-device device-select-wrap">
             <select id="deviceSelect" class="device-select" aria-label="打开设备" data-i18n-aria-label="top.deviceAria" disabled>
               <option value="" data-device-option="waiting" data-i18n="device.waiting">等待设备</option>
@@ -152,17 +163,27 @@
               <div class="info-cell"><span class="info-label" data-i18n="info.firmwareLabel">固件版本</span><span id="firmwareValue" class="info-value" title="">--</span></div>
             </div>
 
-            <div class="mode-row">
-              <span class="mode-title" data-i18n="info.roleLabel">设备角色</span>
-              <div id="roleSegment" class="segment role-segment" role="group" aria-label="设备角色" data-i18n-aria-label="info.roleAria">
-                <button class="segment-button" type="button" data-role="AP" disabled>AP</button>
-                <button class="segment-button" type="button" data-role="DEV" disabled>DEV</button>
-              </div>
-            </div>
-
             <div class="section-panel">
               <div class="section-head">
                 <h3 class="section-title" data-i18n="info.pairTitle">对频管理</h3>
+                <div class="pair-head-actions">
+                  <div id="pairSlotCountControl" class="pair-slot-count-control" hidden>
+                    <span class="pair-slot-count-label" data-i18n="info.slotCountLabel">显示数量</span>
+                    <select id="pairSlotCountSelect" class="config-select pair-slot-count-select" aria-label="显示 slot 数量" data-i18n-aria-label="info.slotCountAria">
+                      <option value="1">1</option>
+                      <option value="2">2</option>
+                      <option value="3">3</option>
+                      <option value="4">4</option>
+                      <option value="5">5</option>
+                      <option value="6">6</option>
+                      <option value="7">7</option>
+                      <option value="8" selected>8</option>
+                    </select>
+                  </div>
+                  <button id="pairRefreshButton" class="pair-refresh-button" type="button" disabled aria-label="刷新" title="刷新" data-i18n-aria-label="pair.refresh" data-i18n-title="pair.refresh">
+                    <svg aria-hidden="true"><use href="#icon-refresh"></use></svg>
+                  </button>
+                </div>
               </div>
               <table class="pair-table" aria-label="对频管理" data-i18n-aria-label="info.pairAria">
                 <thead>
@@ -177,7 +198,7 @@
           </div>
 
           <div id="monitorPage" class="monitor-page" hidden>
-            <div class="section-panel">
+            <div class="section-panel monitor-link-panel">
               <div class="section-head">
                 <h3 class="section-title" data-i18n="monitor.linkTitle">链路信息</h3>
                 <div class="monitor-actions" aria-label="链路数据记录" data-i18n-aria-label="monitor.recordActionsAria">
@@ -195,60 +216,62 @@
                   </button>
                 </div>
               </div>
-              <table class="link-table" aria-label="链路信息" data-i18n-aria-label="monitor.linkAria">
-                <colgroup>
-                  <col class="link-col-name">
-                  <col>
-                  <col>
-                  <col>
-                  <col>
-                  <col>
-                  <col>
-                  <col>
-                  <col class="link-col-tp">
-                  <col>
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th></th>
-                    <th data-i18n="monitor.frequency">频点</th>
-                    <th data-i18n="monitor.bandwidth">频宽</th>
-                    <th data-i18n="monitor.txPower">发射功率</th>
-                    <th data-i18n="monitor.mcs">调制编码</th>
-                    <th data-i18n="monitor.rssi">信号强度</th>
-                    <th data-i18n="monitor.snr">信噪比</th>
-                    <th data-i18n="monitor.errorStats">错误统计</th>
-                    <th data-i18n="monitor.throughput">吞吐率 (实际/理论)</th>
-                    <th data-i18n="monitor.distance">距离</th>
-                  </tr>
-                </thead>
-                <tbody id="monitorTableBody">
-                  <tr>
-                    <td data-i18n="monitor.local">本机</td>
-                    <td>2458</td>
-                    <td>20 MHz</td>
-                    <td>18 dBm</td>
-                    <td>7</td>
-                    <td>-58 dBm</td>
-                    <td>28.0</td>
-                    <td>0/100</td>
-                    <td>18/22 Kbps</td>
-                    <td>0 m</td>
-                  </tr>
-                  <tr>
-                    <td data-i18n="monitor.peer">对端</td>
-                    <td>2458</td>
-                    <td>20 MHz</td>
-                    <td>17 dBm</td>
-                    <td>6</td>
-                    <td>-63 dBm</td>
-                    <td>24.0</td>
-                    <td>0/100</td>
-                    <td>16/20 Kbps</td>
-                    <td>1 m</td>
-                  </tr>
-                </tbody>
-              </table>
+              <div class="monitor-table-wrap">
+                <table id="monitorLinkTable" class="link-table" aria-label="链路信息" data-i18n-aria-label="monitor.linkAria">
+                  <colgroup>
+                    <col class="link-col-name">
+                    <col>
+                    <col>
+                    <col>
+                    <col>
+                    <col>
+                    <col>
+                    <col>
+                    <col class="link-col-tp">
+                    <col>
+                  </colgroup>
+                  <thead id="monitorTableHead">
+                    <tr>
+                      <th></th>
+                      <th data-i18n="monitor.frequency">频点</th>
+                      <th data-i18n="monitor.bandwidth">频宽</th>
+                      <th data-i18n="monitor.txPower">发射功率</th>
+                      <th data-i18n="monitor.mcs">调制编码</th>
+                      <th data-i18n="monitor.rssi">信号强度</th>
+                      <th data-i18n="monitor.snr">信噪比</th>
+                      <th data-i18n="monitor.errorStats">错误统计</th>
+                      <th data-i18n="monitor.throughput">吞吐率 (实际/理论)</th>
+                      <th data-i18n="monitor.distance">距离</th>
+                    </tr>
+                  </thead>
+                  <tbody id="monitorTableBody">
+                    <tr>
+                      <td data-i18n="monitor.local">本机</td>
+                      <td>2458</td>
+                      <td>20 MHz</td>
+                      <td>18 dBm</td>
+                      <td>7</td>
+                      <td>-58 dBm</td>
+                      <td>28.0</td>
+                      <td>0/100</td>
+                      <td>18/22 Kbps</td>
+                      <td>0 m</td>
+                    </tr>
+                    <tr>
+                      <td data-i18n="monitor.peer">对端</td>
+                      <td>2458</td>
+                      <td>20 MHz</td>
+                      <td>17 dBm</td>
+                      <td>6</td>
+                      <td>-63 dBm</td>
+                      <td>24.0</td>
+                      <td>0/100</td>
+                      <td>16/20 Kbps</td>
+                      <td>1 m</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             <div class="section-panel chart-panel">
@@ -283,7 +306,7 @@
                 <div class="band-chart-grid">
                   <div class="band-chart">
                     <div class="band-title" data-i18n="monitor.band2g">2G 频段</div>
-                    <svg class="sweep-chart" viewBox="0 0 1120 286" role="img" aria-label="2G 频段环境扫频折线图" data-i18n-aria-label="monitor.chart2gAria">
+                    <svg class="sweep-chart" viewBox="0 0 1120 286" preserveAspectRatio="none" role="img" aria-label="2G 频段环境扫频折线图" data-i18n-aria-label="monitor.chart2gAria">
                       <defs>
                         <linearGradient id="sweep-interference-gradient-2g" gradientUnits="userSpaceOnUse" x1="0" y1="10" x2="0" y2="224">
                           <stop offset="0%" stop-color="#DC2626"></stop>
@@ -333,7 +356,7 @@
                   </div>
                   <div class="band-chart">
                     <div class="band-title" data-i18n="monitor.band5g">5G 频段</div>
-                    <svg class="sweep-chart" viewBox="0 0 1120 286" role="img" aria-label="5G 频段环境扫频折线图" data-i18n-aria-label="monitor.chart5gAria">
+                    <svg class="sweep-chart" viewBox="0 0 1120 286" preserveAspectRatio="none" role="img" aria-label="5G 频段环境扫频折线图" data-i18n-aria-label="monitor.chart5gAria">
                       <defs>
                         <linearGradient id="sweep-interference-gradient-5g" gradientUnits="userSpaceOnUse" x1="0" y1="10" x2="0" y2="224">
                           <stop offset="0%" stop-color="#DC2626"></stop>
@@ -539,6 +562,7 @@
                 </div>
                 <div class="button-group" aria-label="恢复" data-i18n-aria-label="profile.restoreAria">
                   <button id="resetConfigFile" class="danger-button" type="button" data-i18n="profile.restoreFactory">恢复出厂</button>
+                  <button id="rebootConfigFile" class="primary-button" type="button" data-i18n="persist.reboot">重启生效</button>
                 </div>
               </div>
             </div>
@@ -669,6 +693,17 @@
                 </div>
               </div>
             </div>
+
+            <section class="runtime-log-panel" aria-label="运行日志" data-i18n-aria-label="runtimeLog.panelAria">
+              <div class="runtime-log-head">
+                <div class="runtime-log-copy">
+                  <h3 class="runtime-log-title" data-i18n="runtimeLog.title">运行日志</h3>
+                  <p class="runtime-log-description" data-i18n="runtimeLog.description">查看本次启动以来的全部运行消息。</p>
+                </div>
+                <button id="saveRuntimeLogButton" class="outline-button runtime-log-save" type="button" disabled data-i18n="runtimeLog.save">保存日志</button>
+              </div>
+              <div id="runtimeLogList" class="runtime-log-list" role="log" aria-live="polite" aria-label="运行日志列表" data-i18n-aria-label="runtimeLog.listAria" data-i18n="runtimeLog.empty">暂无运行日志</div>
+            </section>
           </div>
 
           <div id="firmwarePage" class="firmware-page" hidden>
